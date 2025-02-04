@@ -18,6 +18,9 @@
 # Dependency directories (remove the comment below to include it)
 vendor/
 
+# Folder for built executables
+/build/
+
 http-client.private.env.json
 
 # private sample data
