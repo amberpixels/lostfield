@@ -3,19 +3,23 @@ package sf
 import (
 	"bufio"
 	"fmt"
-	"go/token"
+	"go/ast"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/fatih/color"
+	"golang.org/x/tools/go/analysis"
 )
 
 // PrettyPrint writes a linter message in a Rust-like style to the given writer.
 // It extracts the source line from the file (using filename and pos.Line), shortens it to a maximum
 // width (80 characters) while preserving the significant ranges, adjusts the caret position, and prints
 // the formatted diagnostic.
-func PrettyPrint(w io.Writer, filename string, pos token.Position, message string) {
+// TODO: make a struct-base method (so we do not send `pass` via arg, etc)
+func PrettyPrint(w io.Writer, filename string, fn *ast.FuncDecl, pass *analysis.Pass, message string) {
+	pos := pass.Fset.Position(fn.Name.Pos())
+
 	// Open the file.
 	file, err := os.Open(filename)
 	if err != nil {
@@ -86,9 +90,12 @@ func PrettyPrint(w io.Writer, filename string, pos token.Position, message strin
 		),
 	)
 
+	fnName := fn.Name.Name
+	fnNameLen := len(fnName)
+
 	fmt.Fprintf(w, "%*s |\n", gutterWidth, "")
 	fmt.Fprintf(w, "%*d | %s\n", gutterWidth, pos.Line, shortLine)
-	caretLine := strings.Repeat(" ", newCaret) + red("^")
+	caretLine := strings.Repeat(" ", newCaret) + red(strings.Repeat("^", fnNameLen))
 	fmt.Fprintf(w, "%*s | %s %s\n", gutterWidth, "", caretLine, red(message))
 	fmt.Fprintf(w, "\n")
 	// fmt.Fprintf(w, "\n%s: aborting due to previous error\n", bold("error"))

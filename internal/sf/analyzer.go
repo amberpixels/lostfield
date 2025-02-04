@@ -1,7 +1,6 @@
 package sf
 
 import (
-	"fmt"
 	"go/ast"
 	"go/types"
 	"os"
@@ -37,16 +36,14 @@ func Run(pass *analysis.Pass) (any, error) {
 
 				var message string
 				if !ValidateConverter(fn, pass) {
-					message = fmt.Sprintf("Function %q is a converter but is leaking fields", fn.Name.Name)
+					message = " function is considered to be a converter and it does leak fields"
 				} else {
 					return true
 					// message = fmt.Sprintf("Function %q is a proper converter", fn.Name.Name)
 				}
 
-				pos := pass.Fset.Position(fn.Name.Pos())
-
 				// Write the output to stdout.
-				PrettyPrint(os.Stdout, filename, pos, message)
+				PrettyPrint(os.Stdout, filename, fn, pass, message)
 
 			}
 			return true
