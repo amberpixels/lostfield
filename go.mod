@@ -1,4 +1,4 @@
-module github.com/amberpixels/stickyfields
+module github.com/amberpixels/go-stickyfields
 
 go 1.23.5
 
