@@ -121,6 +121,9 @@ func extractCandidateType(t types.Type) (cand candidate, ok bool) {
 //   - Candidate is the argument who fits the candidate type (struct or pointer to struct).
 //   - For at least one candidate pair (input, output) with the same container type,
 //     the names of the candidate types share a common substring (ignoring case).
+//
+// TODO: it can't be slice -> item or item -> slice
+// TODO: it can't be the same type e.g. HandleRewrites(sectionRewrites) (string, SectionRewrite, erro)
 func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	// If we're not including methods and this function has a receiver, skip it.
 	if !includeMethods && fn.Recv != nil {
