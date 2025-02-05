@@ -1,6 +1,7 @@
 package sf
 
 import (
+	"fmt"
 	"go/ast"
 	"go/types"
 	"os"
@@ -18,6 +19,11 @@ var includeMethods = false
 // Run function used in analysis.Analyzer
 func Run(pass *analysis.Pass) (any, error) {
 	color.NoColor = false
+
+	warningsTotal := 0
+	filesTotal := 0
+	filesWarned := 0
+
 	for _, file := range pass.Files {
 		// Get the filename from the file position.
 		filename := pass.Fset.Position(file.Pos()).Filename
@@ -27,7 +33,10 @@ func Run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
+		filesTotal++
+
 		// Walk the AST and look for function declarations.
+		var fileContainsWarnings bool
 		ast.Inspect(file, func(n ast.Node) bool {
 			if fn, ok := n.(*ast.FuncDecl); ok {
 				if !IsPossibleConverter(fn, pass) {
@@ -44,11 +53,25 @@ func Run(pass *analysis.Pass) (any, error) {
 
 				// Write the output to stdout.
 				PrettyPrint(os.Stdout, filename, fn, pass, message)
-
+				warningsTotal++
+				fileContainsWarnings = true
 			}
 			return true
 		})
+		if fileContainsWarnings {
+			filesWarned++
+		}
 	}
+
+	// At the end of processing all files, print the total number of warnings.
+	// Probably temporarily: More for debug purposes.
+	// TODO: find a nice way to output reports in linters
+	if warningsTotal > 0 {
+		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: %d caught in %d files\n", filesTotal, warningsTotal, filesWarned)
+	} else {
+		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0", filesTotal)
+	}
+
 	return nil, nil
 }
 
