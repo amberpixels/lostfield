@@ -9,7 +9,7 @@ import (
 
 func main() {
 	analyzer := &analysis.Analyzer{
-		Name: "go-stickyfields",
+		Name: "stickyfields",
 		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
 		Run:  sf.Run,
 	}
