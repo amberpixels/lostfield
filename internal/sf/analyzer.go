@@ -122,7 +122,6 @@ func extractCandidateType(t types.Type) (cand candidate, ok bool) {
 //   - For at least one candidate pair (input, output) with the same container type,
 //     the names of the candidate types share a common substring (ignoring case).
 //
-// TODO: it can't be slice -> item or item -> slice
 // TODO: it can't be the same type e.g. HandleRewrites(sectionRewrites) (string, SectionRewrite, erro)
 func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	// If we're not including methods and this function has a receiver, skip it.
@@ -170,19 +169,27 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 		return false
 	}
 
-	// Look for at least one candidate pair (in, out)
-	// with the same container type that share a common substring in their names.
+	// Look for at least one candidate pair (in, out) where:
+	// - The container types are compatible:
+	//    - if the input candidate is a slice or map, then the output candidate must be of the same container type.
+	//    - otherwise, if the input candidate is a plain struct or pointer to struct, the output candidate
+	//      must also be a plain struct or pointer (i.e. not a slice or map).
+	// - And the candidate names share a common substring (ignoring case).
 	for _, inCand := range inCandidates {
 		lowerIn := strings.ToLower(inCand.name)
 		for _, outCand := range outCandidates {
-			// for now do not consider slices, map
-			if outCand.containerType == ContainerSlice || outCand.containerType == ContainerMap {
-				continue
+			// Check container type compatibility.
+			if inCand.containerType == ContainerSlice || inCand.containerType == ContainerMap {
+				if inCand.containerType != outCand.containerType {
+					continue // e.g. slice -> non-slice is not allowed.
+				}
+			} else {
+				// inCand is ContainerNone or ContainerPointer.
+				// Allow output to be either a plain struct or a pointer.
+				if outCand.containerType != ContainerNone && outCand.containerType != ContainerPointer {
+					continue
+				}
 			}
-
-			// if inCand.containerType != outCand.containerType {
-			// continue
-			// }
 
 			lowerOut := strings.ToLower(outCand.name)
 			if strings.Contains(lowerOut, lowerIn) || strings.Contains(lowerIn, lowerOut) {
