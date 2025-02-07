@@ -5,11 +5,16 @@ import (
 	"converters/model"
 )
 
-func ConvertSampleToDB(sample model.Sample) *dbmodel.Sample {
-	return &dbmodel.Sample{
-		ID:       sample.ID,
-		Label:    sample.Label,
-		Price:    sample.Price,
+func ConvertSampleToDB(sample model.Sample) (result *dbmodel.Sample) {
+	_ = sample.Label
+	_ = sample.ID
+	_ = result.ID
+
+	result = &dbmodel.Sample{
+		Label:    "const label",
 		Currency: sample.Currency,
 	}
+	result.Price = sample.Price
+
+	return
 }

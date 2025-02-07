@@ -1,6 +1,7 @@
 package sf
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/types"
@@ -43,16 +44,31 @@ func Run(pass *analysis.Pass) (any, error) {
 					return true
 				}
 
-				var message string
-				if !ValidateConverter(fn, pass) {
-					message = " function is considered to be a converter and it does leak fields"
-				} else {
+				validationResult, err := ValidateConverter(fn, pass)
+				if err != nil {
+					fmt.Println("--> Validation error, ignoring ", fn.Name.Name)
 					return true
-					// message = fmt.Sprintf("Function %q is a proper converter", fn.Name.Name)
 				}
 
-				// Write the output to stdout.
-				PrettyPrint(os.Stdout, filename, fn, pass, message)
+				if validationResult.Valid {
+					return true
+				}
+
+				message := fmt.Sprintf(
+					"converter function is leaking fields:\n missing input fields: %v\n missing output fields: %v",
+					validationResult.MissingInputFields,
+					validationResult.MissingOutputFields,
+				)
+
+				var buf bytes.Buffer
+				PrettyPrint(&buf, filename, fn, pass, message)
+
+				// Now report the diagnostic using pass.Report.
+				pass.Report(analysis.Diagnostic{
+					Pos:     fn.Name.Pos(),
+					Message: buf.String(),
+				})
+
 				warningsTotal++
 				fileContainsWarnings = true
 			}
@@ -69,7 +85,7 @@ func Run(pass *analysis.Pass) (any, error) {
 	if warningsTotal > 0 {
 		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: %d caught in %d files\n", filesTotal, warningsTotal, filesWarned)
 	} else {
-		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0", filesTotal)
+		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
 	}
 
 	return nil, nil
@@ -224,12 +240,11 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	return false
 }
 
-// checkAllFieldsUsed returns true if every field in st (a *types.Struct)
-// appears in the provided usedFields map.
-func checkAllFieldsUsed(st *types.Struct, usedFields UsageLookup, usedMethodsArg ...UsageLookup) bool {
+// collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
+func collectMissingFields(st *types.Struct, usedFields UsageLookup, usedMethodsArg ...UsageLookup) []string {
+	var missing []string
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
-		// Here we check only exported fields;
 		// adjust this as needed.
 		if !field.Exported() {
 			continue
@@ -237,16 +252,27 @@ func checkAllFieldsUsed(st *types.Struct, usedFields UsageLookup, usedMethodsArg
 
 		if !usedFields.LookUp(field.Name()) {
 			// if methods were given, let's allow via getters
-			if len(usedMethodsArg) > 0 {
-				if usedMethodsArg[0].LookUp("Get" + field.Name()) {
-					continue
-				}
+			// If a getter method exists (for input candidate) then allow it.
+			if len(usedMethodsArg) > 0 && usedMethodsArg[0].LookUp("Get"+field.Name()) {
+				continue
 			}
-
-			return false
+			missing = append(missing, field.Name())
 		}
 	}
-	return true
+	return missing
+}
+
+// ConverterValidationResult holds the details of a converter function validation.
+type ConverterValidationResult struct {
+	// Valid is true if every exported field (or getter methods) in
+	// both input/output models were used.
+	Valid bool
+	// MissingInputFields contains the names of exported fields in the input candidate
+	// that were not used.
+	MissingInputFields []string
+	// MissingOutputFields contains the names of exported fields in the output candidate
+	// that were not used.
+	MissingOutputFields []string
 }
 
 // ValidateConverter checks that the converter function fn uses every field
@@ -254,46 +280,55 @@ func checkAllFieldsUsed(st *types.Struct, usedFields UsageLookup, usedMethodsArg
 //
 // For input, we assume the candidate comes from the first parameter and that it has a name.
 // For output, we first try to use a named result; if none, we look for a composite literal.
-func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
-	// Get the function object and signature.
+func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidationResult, error) {
+	// Retrieve the function object and signature.
 	obj := pass.TypesInfo.Defs[fn.Name]
 	if obj == nil {
-		return false
+		return ConverterValidationResult{}, fmt.Errorf("cannot get type info for function %q", fn.Name.Name)
 	}
 	sig, ok := obj.Type().(*types.Signature)
 	if !ok {
-		return false
+		return ConverterValidationResult{}, fmt.Errorf("function %q does not have a valid signature", fn.Name.Name)
 	}
 	if sig.Params().Len() < 1 || sig.Results().Len() < 1 {
-		return false
+		return ConverterValidationResult{}, fmt.Errorf("function %q must have at least one parameter and one result", fn.Name.Name)
 	}
 
 	// Find the candidate input parameter.
 	inCand, inVar, okIn := findCandidateParam(fn.Type.Params, sig.Params())
 	if !okIn || inVar == "" {
-		// If we cannot determine a candidate or its variable name, we cannot check.
-		return false
+		return ConverterValidationResult{}, fmt.Errorf("cannot determine candidate input parameter for function %q", fn.Name.Name)
 	}
 
-	// Find the candidate output parameter.
+	// Determine the candidate output parameter.
 	outCand, outVar, okOut := findCandidateParam(fn.Type.Results, sig.Results())
 	if !okOut {
-		return false
+		return ConverterValidationResult{}, fmt.Errorf("cannot determine candidate output parameter for function %q", fn.Name.Name)
 	}
 
 	// Collect field usages for the input candidate variable.
 	fieldsUsedModelIn := CollectUsedFields(fn.Body, inVar)
 	methodsUsedModelIn := CollectUsedMethods(fn.Body, inVar)
-
-	checkedModelIn := checkAllFieldsUsed(inCand.structType, fieldsUsedModelIn, methodsUsedModelIn)
-	if !checkedModelIn {
-		return false
+	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, methodsUsedModelIn)
+	for i, m := range missingIn {
+		missingIn[i] = inVar + "." + m
 	}
 
+	// Collect field usages for the output candidate.
 	fieldsUsedModelOut := CollectOutputFields(fn, outVar, outCand.name)
-	checkedModelOut := checkAllFieldsUsed(outCand.structType, fieldsUsedModelOut)
+	missingOut := collectMissingFields(outCand.structType, fieldsUsedModelOut)
+	if outVar != "" {
+		for i, m := range missingOut {
+			missingOut[i] = outVar + "." + m
+		}
+	}
 
-	return checkedModelIn && checkedModelOut
+	valid := (len(missingIn) == 0 && len(missingOut) == 0)
+	return ConverterValidationResult{
+		Valid:               valid,
+		MissingInputFields:  missingIn,
+		MissingOutputFields: missingOut,
+	}, nil
 }
 
 // findCandidateParam searches the appropriate FieldList (for input or output)
@@ -334,47 +369,3 @@ func findCandidateParam(fieldList *ast.FieldList, sigParams *types.Tuple) (cand 
 	}
 	return candidate{}, "", false
 }
-
-// missingFields returns a slice of exported field names in st that are missing from used.
-// func missingFields(st *types.Struct, used map[string]bool) []string {
-// 	var missing []string
-// 	for i := 0; i < st.NumFields(); i++ {
-// 		field := st.Field(i)
-// 		// Only consider exported fields.
-// 		if !field.Exported() {
-// 			continue
-// 		}
-// 		if !used[field.Name()] {
-// 			missing = append(missing, field.Name())
-// 		}
-// 	}
-// 	return missing
-// }
-
-// // checkConverterFieldUsageUpdated examines the converter function fn and returns two values:
-// // - missingOut: a slice of field names that are missing on the output candidate model.
-// // - ok: a boolean that is true if no fields are missing.
-// func checkConverterFieldUsageUpdated(fn *ast.FuncDecl, pass *analysis.Pass) (missingOut []string, ok bool) {
-// 	// Retrieve the function signature.
-// 	obj := pass.TypesInfo.Defs[fn.Name]
-// 	if obj == nil {
-// 		return []string{"no type info"}, false
-// 	}
-// 	sig, okSig := obj.Type().(*types.Signature)
-// 	if !okSig || sig.Params().Len() < 1 || sig.Results().Len() < 1 {
-// 		return []string{"invalid signature"}, false
-// 	}
-
-// 	// For output, use our candidate-finding helper.
-// 	outCand, outVar, okOut := findCandidateParam(fn, fn.Type.Results, sig.Results())
-// 	if !okOut {
-// 		return []string{"no candidate output parameter"}, false
-// 	}
-
-// 	// Collect output field usage.
-// 	outputUsed := collectOutputFields(fn, outVar, outCand.name)
-// 	// Determine which exported fields of outCand are missing.
-// 	missingOut = missingFields(outCand.structType, outputUsed)
-// 	ok = len(missingOut) == 0
-// 	return missingOut, ok
-// }

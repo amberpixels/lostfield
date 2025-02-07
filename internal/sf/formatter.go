@@ -82,13 +82,13 @@ func PrettyPrint(w io.Writer, filename string, fn *ast.FuncDecl, pass *analysis.
 	_ = bold
 
 	// Print header.
-	// fmt.Fprintf(w, "--> %s:%d:%d\n", filename, pos.Line, pos.Column)
-	fmt.Fprintf(w, "\033]8;;file://%s:%d:%d\033\\%s\033]8;;\033\\\n",
-		filename, pos.Line, pos.Column,
-		blue(
-			fmt.Sprintf("--> %s:%d:%d", filename, pos.Line, pos.Column),
-		),
-	)
+	// fmt.Fprintf(w, "\033]8;;file://%s:%d:%d\033\\%s\033]8;;\033\\\n",
+	// 	filename, pos.Line, pos.Column,
+	// 	blue(
+	// 		fmt.Sprintf("--> %s:%d:%d", filename, pos.Line, pos.Column),
+	// 	),
+	// )
+	fmt.Fprintf(w, "\n")
 
 	fnName := fn.Name.Name
 	fnNameLen := len(fnName)
