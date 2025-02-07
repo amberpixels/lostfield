@@ -76,7 +76,7 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 	}
 
 	// Decide based on the mode.
-	if v.nodesType == RecordMethods && isMethodCall {
+	if v.nodesType == RecordMethods && isMethodCall || !isMethodCall {
 		v.used[sel.Sel.Name] = struct{}{}
 	}
 
