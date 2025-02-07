@@ -23,6 +23,8 @@ vendor/
 
 http-client.private.env.json
 
+output.txt
+
 # private sample data
 *.private.json
 *.private.yaml
