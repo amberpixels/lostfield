@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -48,7 +49,7 @@ func PrettyPrint(w io.Writer, filename string, fn *ast.FuncDecl, pass *analysis.
 	shortLine := shortenLine(sourceLine, maxWidth)
 
 	// Determine the gutter width (using the line number).
-	lineNumStr := fmt.Sprintf("%d", pos.Line)
+	lineNumStr := strconv.Itoa(pos.Line)
 	gutterWidth := len(lineNumStr)
 
 	// Adjust the caret: we know pos.Column is in the original line.

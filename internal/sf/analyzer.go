@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fatih/color"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -17,10 +16,8 @@ import (
 // Set to false to consider only plain functions.
 var includeMethods = false
 
-// Run function used in analysis.Analyzer
+// Run function used in analysis.Analyzer.
 func Run(pass *analysis.Pass) (any, error) {
-	color.NoColor = false
-
 	warningsTotal := 0
 	filesTotal := 0
 	filesWarned := 0
@@ -46,7 +43,7 @@ func Run(pass *analysis.Pass) (any, error) {
 
 				validationResult, err := ValidateConverter(fn, pass)
 				if err != nil {
-					fmt.Println("--> Validation error, ignoring ", fn.Name.Name)
+					// fmt.Println("--> Validation error, ignoring ", fn.Name.Name)
 					return true
 				}
 
@@ -83,12 +80,18 @@ func Run(pass *analysis.Pass) (any, error) {
 	// Probably temporarily: More for debug purposes.
 	// TODO: find a nice way to output reports in linters
 	if warningsTotal > 0 {
-		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: %d caught in %d files\n", filesTotal, warningsTotal, filesWarned)
+		fmt.Fprintf(
+			os.Stdout,
+			"\nFiles total analyzed: %d. Warnings: %d caught in %d files\n",
+			filesTotal,
+			warningsTotal,
+			filesWarned,
+		)
 	} else {
 		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
 	}
 
-	return nil, nil
+	return nil, nil //nolint: nilnil // fix later
 }
 
 // ContainerType represents the “container” kind for a candidate type.
@@ -112,7 +115,8 @@ type candidate struct {
 // It recognizes a plain struct, a pointer to a struct, a slice/array of such types,
 // or a map whose value is such a type. If so, it returns the candidate (with its
 // underlying type name and container type) and ok==true. Otherwise, ok==false.
-func extractCandidateType(t types.Type) (cand candidate, ok bool) {
+func extractCandidateType(t types.Type) (candidate, bool) {
+	var cand candidate
 	// First, check for containers.
 	switch tt := t.(type) {
 	case *types.Slice, *types.Array:
@@ -291,19 +295,28 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidati
 		return ConverterValidationResult{}, fmt.Errorf("function %q does not have a valid signature", fn.Name.Name)
 	}
 	if sig.Params().Len() < 1 || sig.Results().Len() < 1 {
-		return ConverterValidationResult{}, fmt.Errorf("function %q must have at least one parameter and one result", fn.Name.Name)
+		return ConverterValidationResult{}, fmt.Errorf(
+			"function %q must have at least one parameter and one result",
+			fn.Name.Name,
+		)
 	}
 
 	// Find the candidate input parameter.
 	inCand, inVar, okIn := findCandidateParam(fn.Type.Params, sig.Params())
 	if !okIn || inVar == "" {
-		return ConverterValidationResult{}, fmt.Errorf("cannot determine candidate input parameter for function %q", fn.Name.Name)
+		return ConverterValidationResult{}, fmt.Errorf(
+			"cannot determine candidate input parameter for function %q",
+			fn.Name.Name,
+		)
 	}
 
 	// Determine the candidate output parameter.
 	outCand, outVar, okOut := findCandidateParam(fn.Type.Results, sig.Results())
 	if !okOut {
-		return ConverterValidationResult{}, fmt.Errorf("cannot determine candidate output parameter for function %q", fn.Name.Name)
+		return ConverterValidationResult{}, fmt.Errorf(
+			"cannot determine candidate output parameter for function %q",
+			fn.Name.Name,
+		)
 	}
 
 	// Collect field usages for the input candidate variable.
@@ -334,7 +347,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidati
 // findCandidateParam searches the appropriate FieldList (for input or output)
 // for the first parameter/result that qualifies as a candidate type.
 // It returns the candidate info, the variable name (if any) and true on success.
-func findCandidateParam(fieldList *ast.FieldList, sigParams *types.Tuple) (cand candidate, varName string, found bool) {
+func findCandidateParam(fieldList *ast.FieldList, sigParams *types.Tuple) (candidate, string, bool) {
 	if fieldList == nil {
 		return candidate{}, "", false
 	}

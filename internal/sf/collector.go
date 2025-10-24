@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// CollectingType means which type of node we can "collect" via usageCollector
+// CollectingType means which type of node we can "collect" via usageCollector.
 type CollectingType int
 
 const (
@@ -15,7 +15,7 @@ const (
 	RecordFields
 )
 
-// UsageLookup is a map storing name of fields/methods that were used
+// UsageLookup is a map storing name of fields/methods that were used.
 type UsageLookup map[string]struct{}
 
 func (ul UsageLookup) LookUp(v string) bool {
@@ -24,7 +24,7 @@ func (ul UsageLookup) LookUp(v string) bool {
 }
 
 // UsageCollector is a generic AST visitor that collects selector usage for a given variable.
-// rType(RecordingType) stands for the type of things we record: fields or methods
+// rType(RecordingType) stands for the type of things we record: fields or methods.
 type UsageCollector struct {
 	used        UsageLookup
 	varName     string
@@ -41,7 +41,7 @@ func NewUsageCollector(varName string, rType CollectingType) *UsageCollector {
 	}
 }
 
-// Visit collects used items (of nodeType) in a given container node
+// Visit collects used items (of nodeType) in a given container node.
 func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 	// When node is nil, we're returning from a branch: pop the last parent.
 	if container == nil {
