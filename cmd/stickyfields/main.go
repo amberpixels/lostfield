@@ -4,15 +4,14 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/unitchecker"
 
+	"github.com/amberpixels/go-stickyfields/internal/config"
 	"github.com/amberpixels/go-stickyfields/internal/sf"
 )
 
 func main() {
-	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+	unitchecker.Main(&analysis.Analyzer{
+		Name: config.LinterName,
+		Doc:  config.LinterDoc,
 		Run:  sf.Run,
-	}
-
-	unitchecker.Main(analyzer)
+	})
 }
