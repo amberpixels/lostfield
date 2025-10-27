@@ -9,12 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/amberpixels/go-stickyfields/internal/config"
 	"golang.org/x/tools/go/analysis"
 )
-
-// Configuration variable for including methods (functions with receivers) in the check.
-// Set to false to consider only plain functions.
-var includeMethods = false
 
 // Run function used in analysis.Analyzer.
 func Run(pass *analysis.Pass) (any, error) {
@@ -167,8 +164,10 @@ func extractCandidateType(t types.Type) (candidate, bool) {
 //
 // TODO: it can't be the same type e.g. HandleRewrites(sectionRewrites) (string, SectionRewrite, erro)
 func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
+	cfg := config.Get()
+
 	// If we're not including methods and this function has a receiver, skip it.
-	if !includeMethods && fn.Recv != nil {
+	if !cfg.IncludeMethods && fn.Recv != nil {
 		return false
 	}
 
@@ -246,6 +245,7 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 
 // collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
 func collectMissingFields(st *types.Struct, usedFields UsageLookup, usedMethodsArg ...UsageLookup) []string {
+	cfg := config.Get()
 	var missing []string
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
@@ -255,9 +255,9 @@ func collectMissingFields(st *types.Struct, usedFields UsageLookup, usedMethodsA
 		}
 
 		if !usedFields.LookUp(field.Name()) {
-			// if methods were given, let's allow via getters
+			// if methods were given, let's allow via getters (if config allows)
 			// If a getter method exists (for input candidate) then allow it.
-			if len(usedMethodsArg) > 0 && usedMethodsArg[0].LookUp("Get"+field.Name()) {
+			if cfg.AllowGetters && len(usedMethodsArg) > 0 && usedMethodsArg[0].LookUp("Get"+field.Name()) {
 				continue
 			}
 			missing = append(missing, field.Name())

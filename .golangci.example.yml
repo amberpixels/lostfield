@@ -1,0 +1,67 @@
+# Example golangci-lint configuration for stickyfields linter
+# Copy this file to .golangci.yml and adjust settings as needed
+
+version: "2"
+
+linters:
+  enable:
+    - stickyfields
+
+linters-settings:
+  stickyfields:
+    # Check method receivers in addition to plain functions
+    # Default: false
+    # When enabled, the linter will also check methods (functions with receivers)
+    # Example: func (s *Service) ConvertUserToDTO(user User) UserDTO
+    include-methods: false
+
+    # Allow Get* methods as a substitute for direct field access
+    # Default: true
+    # When enabled, fields accessed via getter methods (e.g., user.GetName())
+    # are considered "used" even if the field itself isn't directly accessed
+    allow-getters: true
+
+    # Comma-separated regex patterns for field names to ignore
+    # Default: "" (empty)
+    # Common patterns to ignore:
+    #   - Timestamps: CreatedAt, UpdatedAt, DeletedAt
+    #   - IDs that are auto-generated: .*ID
+    #   - Audit fields: .*At, .*By
+    # Example: "CreatedAt,UpdatedAt,DeletedAt,.*ID"
+    exclude-fields: ""
+
+    # Minimum type name similarity ratio (0.0-1.0)
+    # Default: 0.0 (substring matching)
+    # 0.0 = use substring matching (e.g., "User" matches "UserDTO")
+    # Higher values (e.g., 0.8) require more similar type names
+    # Uses Levenshtein distance for similarity calculation (future feature)
+    min-similarity: 0.0
+
+    # Comma-separated struct tags that mark fields to ignore
+    # Default: "" (empty)
+    # Fields with these tags will be ignored by the linter
+    # Example: 'stickyfields:"ignore",json:"-"'
+    # Note: This is a planned feature for future implementation
+    ignore-tags: ""
+
+# Example usage scenarios:
+
+# Scenario 1: Strict checking (check everything)
+# linters-settings:
+#   stickyfields:
+#     include-methods: true
+#     allow-getters: false
+#     exclude-fields: ""
+
+# Scenario 2: Lenient checking (ignore common patterns)
+# linters-settings:
+#   stickyfields:
+#     include-methods: false
+#     allow-getters: true
+#     exclude-fields: "CreatedAt,UpdatedAt,DeletedAt,.*ID,.*At"
+
+# Scenario 3: Focus on converters only (default)
+# linters-settings:
+#   stickyfields:
+#     include-methods: false
+#     allow-getters: true
