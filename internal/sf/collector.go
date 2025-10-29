@@ -80,6 +80,20 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 		v.used[sel.Sel.Name] = struct{}{}
 	}
 
+	// Also check if this selector is used in a blank identifier assignment (e.g., _ = model.Field)
+	// This is a valid way to acknowledge that a field exists/is used
+	if len(v.parentStack) >= 2 {
+		if assign, ok := v.parentStack[len(v.parentStack)-2].(*ast.AssignStmt); ok {
+			// Check if LHS is a blank identifier
+			if len(assign.Lhs) > 0 {
+				if ident, ok := assign.Lhs[0].(*ast.Ident); ok && ident.Name == "_" {
+					// This is an assignment to blank identifier, mark field as used
+					v.used[sel.Sel.Name] = struct{}{}
+				}
+			}
+		}
+	}
+
 	return v
 }
 

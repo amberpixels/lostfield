@@ -40,6 +40,49 @@ func TestDelegatingConverters(t *testing.T) {
 	analysistest.Run(t, testdata, analyzer, "converters/delegate")
 }
 
+func TestSameTypeFunctions(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that functions with the same input and output type
+	// (e.g., applyFilters(*DB) *DB) are NOT flagged as converters
+	analysistest.Run(t, testdata, analyzer, "converters/sameType")
+}
+
+func TestBlankIdentifierFields(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that fields marked with blank identifier (_ = model.Field)
+	// are correctly recognized as being used/acknowledged
+	analysistest.Run(t, testdata, analyzer, "converters/blankIdent")
+}
+
+func TestDifferentPackagesSameName(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that converters with same-named types from different packages
+	// (e.g., models.MatchedMapData -> pbVenueConfig.MatchedMapData) are correctly
+	// identified as converters and not excluded by the same-type check
+	analysistest.Run(t, testdata, analyzer, "converters/differentPackages")
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files

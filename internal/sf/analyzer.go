@@ -109,6 +109,7 @@ type candidate struct {
 	name          string
 	containerType ContainerType
 	structType    *types.Struct
+	fullType      types.Type // Full type info for accurate comparisons
 }
 
 // extractCandidateType checks if the given type qualifies as a candidate for conversion.
@@ -155,6 +156,7 @@ func extractCandidateType(t types.Type) (candidate, bool) {
 	}
 	cand.name = named.Obj().Name()
 	cand.structType = st
+	cand.fullType = named // Store the full type for accurate comparison
 	return cand, true
 }
 
@@ -219,10 +221,17 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	//    - if the input candidate is a slice or map, then the output candidate must be of the same container type.
 	//    - otherwise, if the input candidate is a plain struct or pointer to struct, the output candidate
 	//      must also be a plain struct or pointer (i.e. not a slice or map).
+	// - The candidate names are different (no same-type conversions like DB -> DB)
 	// - And the candidate names share a common substring (ignoring case).
 	for _, inCand := range inCandidates {
 		lowerIn := strings.ToLower(inCand.name)
 		for _, outCand := range outCandidates {
+			// Exclude same-type conversions (e.g., *DB -> *DB is not a converter)
+			// Compare full types, not just names, to avoid false positives like models.MatchedMapData -> pbVenueConfig.MatchedMapData
+			if inCand.fullType != nil && outCand.fullType != nil && types.Identical(inCand.fullType, outCand.fullType) {
+				continue
+			}
+
 			// Check container type compatibility.
 			if inCand.containerType == ContainerSlice || inCand.containerType == ContainerMap {
 				if inCand.containerType != outCand.containerType {
