@@ -97,6 +97,20 @@ func TestChainedReturnMethod(t *testing.T) {
 	analysistest.Run(t, testdata, analyzer, "converters/chainedReturn")
 }
 
+func TestSliceToNonSlice(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that slice->non-slice conversions are NOT caught as converters
+	// These are utility functions, not proper converters
+	analysistest.Run(t, testdata, analyzer, "converters/sliceToNonSlice")
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files

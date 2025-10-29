@@ -37,3 +37,69 @@ func (o *OutputModel) Clone() *OutputModel {
 		Value: o.Value,
 	}
 }
+
+// ProtoVenueConfigToModel converts proto to model with chained Prepare call
+// This should detect ALL fields in the composite literal and NOT flag as missing
+func ProtoVenueConfigToModel(config *VenueConfig) *VenueModel {
+	if config == nil {
+		return nil
+	}
+
+	return (&VenueModel{
+		ID:           config.ID,
+		Name:         config.Name,
+		CreatedAt:    "now",
+		UpdatedAt:    "now",
+		IsDeprecated: config.Deprecated,
+		MapSlug:      "",
+		Priority:     0,
+	}).Prepare()
+}
+
+// ProtoVenueConfigToModelChainedNoNil - same converter but without nil check
+// Testing if nil check affects detection
+func ProtoVenueConfigToModelChainedNoNil(config *VenueConfig) *VenueModel {
+	return (&VenueModel{
+		ID:           config.ID,
+		Name:         config.Name,
+		CreatedAt:    "now",
+		UpdatedAt:    "now",
+		IsDeprecated: config.Deprecated,
+		MapSlug:      "",
+		Priority:     0,
+	}).Prepare()
+}
+
+// Prepare is a helper method
+func (vm *VenueModel) Prepare() *VenueModel {
+	return vm
+}
+
+// ProtoVenueConfigToModelMissingFields converts proto to model with chained Prepare call
+// but intentionally doesn't set all output fields
+// This SHOULD flag as missing some output fields
+func ProtoVenueConfigToModelMissingFields(config *VenueConfig) *VenueModel {
+	if config == nil {
+		return nil
+	}
+
+	return (&VenueModel{
+		ID:      config.ID,
+		Name:    config.Name,
+		// Missing: CreatedAt, UpdatedAt, IsDeprecated, MapSlug, Priority
+	}).Prepare()
+}
+
+// TestChainedWithMethods uses method calls instead of field accesses
+// This tests if we properly detect composite literals when input uses method calls
+func (vc *VenueConfig) GetID() int {
+	return vc.ID
+}
+
+func (vc *VenueConfig) GetName() string {
+	return vc.Name
+}
+
+func (vc *VenueConfig) IsDeprecated() bool {
+	return vc.Deprecated
+}
