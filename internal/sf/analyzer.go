@@ -52,7 +52,7 @@ func Run(pass *analysis.Pass) (any, error) {
 				message := formatConverterValidationMessage(validationResult)
 
 				var buf bytes.Buffer
-				PrettyPrint(&buf, filename, fn, pass, message)
+				PrettyPrint(&buf, filename, fn, pass, message, string(validationResult.ConverterType))
 
 				// Now report the diagnostic using pass.Report.
 				pass.Report(analysis.Diagnostic{
@@ -90,40 +90,27 @@ func Run(pass *analysis.Pass) (any, error) {
 	return nil, nil //nolint: nilnil // fix later
 }
 
-// formatConverterValidationMessage creates a human-readable two-column format for missing fields.
-// Example output:
-//
-//	converter function is leaking fields:
-//	 data.CalculatedAt → ??
-//	 data.CreatedAt    → ??
-//	 ??                → output.NewField
-//
-// When there are many fields missing, it simplifies to:
-//
-//	converter function is leaking fields:
-//	 ??  → all output fields
+// formatConverterValidationMessage creates a human-readable format with missing field details.
 func formatConverterValidationMessage(result *ConverterValidationResult) string {
 	var buf strings.Builder
-	buf.WriteString("converter function is leaking fields:\n")
+	buf.WriteString("= note: missing fields:\n")
 
 	if len(result.MissingInputFields) == 0 && len(result.MissingOutputFields) == 0 {
 		return buf.String()
 	}
 
-	// Use consistent indentation for the table (aligned with 'func' keyword position)
-	// The format is: line_number | code, so we need to indent to align with the code
-	const indent = "      "
+	// Use consistent indentation for the table (aligned with 'func' keyword position).
 
 	// Simplification: if no input fields are missing but many output fields are, just say "all output fields"
 	// This makes the output more readable when there are dozens of missing output fields
 	if len(result.MissingInputFields) == 0 && len(result.MissingOutputFields) > 5 {
-		buf.WriteString(indent + "??  → all output fields\n")
+		buf.WriteString("  ??  → all output fields")
 		return buf.String()
 	}
 
 	// Similarly, if no output fields are missing but many input fields are, say "all input fields"
 	if len(result.MissingOutputFields) == 0 && len(result.MissingInputFields) > 5 {
-		buf.WriteString(indent + "all input fields → ??\n")
+		buf.WriteString("  all input fields → ??")
 		return buf.String()
 	}
 
@@ -148,13 +135,13 @@ func formatConverterValidationMessage(result *ConverterValidationResult) string 
 	// Add input fields (missing in output mapping)
 	for _, field := range result.MissingInputFields {
 		padding := strings.Repeat(" ", maxLen-len(field)+1)
-		buf.WriteString(indent + field + padding + "→ ??\n")
+		buf.WriteString("\n  " + field + padding + "→ ??")
 	}
 
 	// Add output fields (missing in input mapping)
 	for _, field := range result.MissingOutputFields {
 		padding := strings.Repeat(" ", maxLen-len("??")+1)
-		buf.WriteString(indent + "??" + padding + "→ " + field + "\n")
+		buf.WriteString("\n  " + "??" + padding + "→ " + field)
 	}
 
 	return buf.String()
@@ -301,7 +288,16 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 			// Check container type compatibility.
 			if inCand.containerType == ContainerSlice || inCand.containerType == ContainerMap {
 				if inCand.containerType != outCand.containerType {
-					continue // e.g. slice -> non-slice is not allowed.
+					// Special case: slice input to non-slice output may be an aggregating converter
+					if cfg.AllowAggregatorsConverters && inCand.containerType == ContainerSlice {
+						if isAgg, _ := isAggregatingConverter(inCand, outCand); isAgg {
+							// For aggregating converters, we consider them as converters based on
+							// the presence of a slice field in the output, regardless of name similarity.
+							// The actual field validation will determine if it's a valid converter.
+							return true
+						}
+					}
+					continue // e.g. slice -> non-slice is not allowed (unless aggregating).
 				}
 			} else {
 				// inCand is ContainerNone or ContainerPointer.
@@ -344,11 +340,22 @@ func collectMissingFields(st *types.Struct, usedFields UsageLookup, usedMethodsA
 	return missing
 }
 
+// ConverterType indicates the type of converter function.
+type ConverterType string
+
+const (
+	ConverterTypeNormal      ConverterType = "converter"
+	ConverterTypeDelegating  ConverterType = "delegating converter"
+	ConverterTypeAggregating ConverterType = "aggregating converter"
+)
+
 // ConverterValidationResult holds the details of a converter function validation.
 type ConverterValidationResult struct {
 	// Valid is true if every exported field (or getter methods) in
 	// both input/output models were used.
 	Valid bool
+	// ConverterType indicates what type of converter this is
+	ConverterType ConverterType
 	// MissingInputFields contains the names of exported fields in the input candidate
 	// that were not used.
 	MissingInputFields []string
@@ -408,7 +415,18 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 	if isDelegatingConverter(fn, inCand, outCand, inVar) {
 		// For delegating converters, skip validation since the actual field mapping
 		// is delegated to the inner converter function which will be linted separately
-		return NewOKConverterValidationResult(), nil
+		result := NewOKConverterValidationResult()
+		result.ConverterType = ConverterTypeDelegating
+		return result, nil
+	}
+
+	// Check if this is an aggregating converter (slice -> non-slice with slice field)
+	if isAgg, sliceFieldName := isAggregatingConverter(inCand, outCand); isAgg {
+		result := validateAggregatingConverter(fn, inCand, outCand, inVar, sliceFieldName)
+		if result != nil {
+			result.ConverterType = ConverterTypeAggregating
+		}
+		return result, nil
 	}
 
 	// Collect field usages for the input candidate variable.
@@ -432,7 +450,9 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 		return NewOKConverterValidationResult(), nil
 	}
 
-	return NewFailedConverterValidationResult(missingIn, missingOut), nil
+	result := NewFailedConverterValidationResult(missingIn, missingOut)
+	result.ConverterType = ConverterTypeNormal
+	return result, nil
 }
 
 // findCandidateParam searches the appropriate FieldList (for input or output)
@@ -554,4 +574,135 @@ func isDelegatingConverter(
 	})
 
 	return foundDelegation
+}
+
+// isAggregatingConverter detects if fn is an aggregating converter:
+// - Input is a slice
+// - Output is a non-slice struct
+// - Output struct contains a slice field that holds the converted input elements
+//
+// Returns (isAggregating, sliceFieldName) where:
+// - sliceFieldName is the field in the output that represents the aggregated/converted slice.
+func isAggregatingConverter(inCand candidate, outCand candidate) (bool, string) {
+	// Input must be a slice, output must be a non-slice struct
+	if inCand.containerType != ContainerSlice {
+		return false, ""
+	}
+	if outCand.containerType != ContainerNone && outCand.containerType != ContainerPointer {
+		return false, ""
+	}
+
+	// Look for a slice field in the output struct.
+	outStruct := outCand.structType
+	for i := 0; i < outStruct.NumFields(); i++ {
+		field := outStruct.Field(i)
+		if !field.Exported() {
+			continue
+		}
+
+		// Check if this field is a slice
+		if _, isSlice := field.Type().(*types.Slice); isSlice {
+			return true, field.Name()
+		}
+	}
+
+	// If there are no slice fields, it's not an aggregating converter.
+	return false, ""
+}
+
+// findLoopVariable finds the loop variable used in a range loop over the input slice.
+// For example, in "for _, detail := range details", it returns "detail".
+func findLoopVariable(fn *ast.FuncDecl, inVar string) string {
+	var loopVar string
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if loopVar != "" {
+			return false
+		}
+		rangeStmt, ok := n.(*ast.RangeStmt)
+		if !ok {
+			return true
+		}
+
+		// Check if looping over the input variable
+		ident, ok := rangeStmt.X.(*ast.Ident)
+		if !ok || ident.Name != inVar {
+			return true
+		}
+
+		// Extract loop variable (e.g., "detail" in "for _, detail := range details")
+		if rangeStmt.Value != nil {
+			if idVal, ok := rangeStmt.Value.(*ast.Ident); ok {
+				loopVar = idVal.Name
+			}
+		}
+		return false
+	})
+	return loopVar
+}
+
+// validateAggregatingConverter validates aggregating converters (slice -> non-slice).
+// For these converters:
+// - All fields from the input slice element must be used.
+// - All fields from the output slice element must be set.
+// - Other wrapper fields in the output struct can be left as-is.
+func validateAggregatingConverter(
+	fn *ast.FuncDecl,
+	inCand candidate,
+	outCand candidate,
+	inVar string,
+	sliceFieldName string,
+) *ConverterValidationResult {
+	// Find the loop variable (e.g., "detail" in "for _, detail := range details")
+	loopVar := findLoopVariable(fn, inVar)
+	if loopVar == "" {
+		// If we can't find a loop variable, it's not a proper aggregating converter
+		return NewOKConverterValidationResult()
+	}
+
+	// Validate that all input fields are used through the loop variable
+	fieldsUsedModelIn := CollectUsedFields(fn.Body, loopVar)
+	methodsUsedModelIn := CollectUsedMethods(fn.Body, loopVar)
+	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, methodsUsedModelIn)
+	for i, m := range missingIn {
+		missingIn[i] = loopVar + "." + m
+	}
+
+	// Get the slice field and extract its element type
+	var sliceElemType *types.Struct
+	var sliceElemTypeName string
+	for i := 0; i < outCand.structType.NumFields(); i++ {
+		field := outCand.structType.Field(i)
+		if field.Name() == sliceFieldName {
+			if sliceType, ok := field.Type().(*types.Slice); ok {
+				// Get the element type
+				if namedType, ok := sliceType.Elem().(*types.Named); ok {
+					sliceElemTypeName = namedType.Obj().Name()
+					if st, ok := namedType.Underlying().(*types.Struct); ok {
+						sliceElemType = st
+					}
+				}
+			}
+			break
+		}
+	}
+
+	// If we couldn't determine the slice element type, skip validation
+	if sliceElemType == nil {
+		return NewOKConverterValidationResult()
+	}
+
+	// Collect fields that are set in composite literals of the slice element type
+	fieldsUsedInSliceElem := CollectOutputFields(fn, "", sliceElemTypeName)
+	missingOut := collectMissingFields(sliceElemType, fieldsUsedInSliceElem)
+	if len(missingOut) > 0 {
+		for i, m := range missingOut {
+			missingOut[i] = sliceFieldName + "[]." + m
+		}
+	}
+
+	if len(missingIn) == 0 && len(missingOut) == 0 {
+		return NewOKConverterValidationResult()
+	}
+
+	return NewFailedConverterValidationResult(missingIn, missingOut)
 }

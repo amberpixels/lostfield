@@ -19,6 +19,10 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("AllowGetters: got %v, want true", cfg.AllowGetters)
 	}
 
+	if cfg.AllowAggregatorsConverters != false {
+		t.Errorf("AllowAggregatorsConverters: got %v, want false", cfg.AllowAggregatorsConverters)
+	}
+
 	if cfg.ExcludeFieldPatterns != "" {
 		t.Errorf("ExcludeFieldPatterns: got %q, want empty string", cfg.ExcludeFieldPatterns)
 	}
@@ -64,6 +68,17 @@ func TestRegisterFlags(t *testing.T) {
 				cfg := config.Get()
 				if cfg.AllowGetters {
 					t.Errorf("AllowGetters: got true, want false")
+				}
+			},
+		},
+		{
+			name:     "allow-aggregators flag",
+			flagName: "-allow-aggregators",
+			value:    "true",
+			checkFunc: func(t *testing.T) {
+				cfg := config.Get()
+				if !cfg.AllowAggregatorsConverters {
+					t.Errorf("AllowAggregatorsConverters: got false, want true")
 				}
 			},
 		},
@@ -134,6 +149,7 @@ func TestConfigGet(t *testing.T) {
 	// Verify it's a valid Config struct
 	_ = cfg.IncludeMethods
 	_ = cfg.AllowGetters
+	_ = cfg.AllowAggregatorsConverters
 	_ = cfg.ExcludeFieldPatterns
 	_ = cfg.MinTypeSimilarity
 	_ = cfg.IgnoreFieldTags

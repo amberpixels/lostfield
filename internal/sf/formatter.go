@@ -18,7 +18,14 @@ import (
 // width (80 characters) while preserving the significant ranges, adjusts the caret position, and prints
 // the formatted diagnostic.
 // TODO: make a struct-base method (so we do not send `pass` via arg, etc)
-func PrettyPrint(w io.Writer, filename string, fn *ast.FuncDecl, pass *analysis.Pass, message string) {
+func PrettyPrint(
+	w io.Writer,
+	filename string,
+	fn *ast.FuncDecl,
+	pass *analysis.Pass,
+	message string,
+	converterType string,
+) {
 	pos := pass.Fset.Position(fn.Name.Pos())
 
 	// Open the file.
@@ -75,11 +82,16 @@ func PrettyPrint(w io.Writer, filename string, fn *ast.FuncDecl, pass *analysis.
 	}
 
 	// Prepare colored output.
+	// Force color output even when output is not a TTY (when captured by go vet).
+	// Note: We set the global NoColor flag to ensure colors are rendered.
+	//nolint:reassign // Set global flag to force color output in go vet
+	color.NoColor = false
+
 	blue := color.New(color.FgBlue).SprintFunc()
 	red := color.New(color.FgRed).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 
-	_ = blue
 	_ = bold
 
 	// Print header.
@@ -89,16 +101,47 @@ func PrettyPrint(w io.Writer, filename string, fn *ast.FuncDecl, pass *analysis.
 	// 		fmt.Sprintf("--> %s:%d:%d", filename, pos.Line, pos.Column),
 	// 	),
 	// )
-	fmt.Fprintf(w, "\n")
 
 	fnName := fn.Name.Name
 	fnNameLen := len(fnName)
 
-	fmt.Fprintf(w, "%*s |\n", gutterWidth, "")
-	fmt.Fprintf(w, "%*d | %s\n", gutterWidth, pos.Line, shortLine)
-	caretLine := strings.Repeat(" ", newCaret) + red(strings.Repeat("^", fnNameLen))
-	fmt.Fprintf(w, "%*s | %s %s\n", gutterWidth, "", caretLine, red(message))
-	fmt.Fprintf(w, "\n")
+	// Print with extra spacing (4 spaces min) before the function code
+	const minSpacing = 4
+	fmt.Fprintf(w, "\n%*s %s\n", gutterWidth, "", blue("|"))
+	lineNum := blue(fmt.Sprintf("%*d", gutterWidth, pos.Line))
+	pipe := blue(" |")
+	fmt.Fprintf(w, "%s%s %s %*s%s\n", lineNum, pipe, "", minSpacing, "", shortLine)
+
+	// Adjust caret position to account for the min spacing
+	caretLine := strings.Repeat(" ", newCaret+minSpacing) + yellow(strings.Repeat("^", fnNameLen))
+
+	// Show converter type on the caret line
+	var typeLabel string
+	if converterType != "" {
+		typeLabel = " detected as " + converterType
+	}
+	fmt.Fprintf(w, "%*s %s %s%s\n", gutterWidth, "", blue("|"), caretLine, yellow(typeLabel))
+
+	// Add blank line with just the pipe
+	fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", blue("|"))
+
+	// Handle multi-line messages (the note section)
+	messageLines := strings.Split(message, "\n")
+	for i, line := range messageLines {
+		if line != "" {
+			if i == 0 && strings.HasPrefix(line, "=") {
+				// Color the '=' in blue, rest in red
+				eqIndex := strings.Index(line, "=")
+				if eqIndex >= 0 {
+					fmt.Fprintf(w, "%*s %s%s\n", gutterWidth, "", blue("="), red(line[1:]))
+				} else {
+					fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", red(line))
+				}
+			} else {
+				fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", red(line))
+			}
+		}
+	}
 	// fmt.Fprintf(w, "\n%s: aborting due to previous error\n", bold("error"))
 }
 

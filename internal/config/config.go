@@ -16,6 +16,10 @@ type Config struct {
 	// AllowGetters allows Get* methods as a substitute for field access
 	AllowGetters bool
 
+	// AllowAggregatorsConverters enables detection of slice->non-slice converters
+	// where the output struct contains a field that holds the converted slice
+	AllowAggregatorsConverters bool
+
 	// ExcludeFieldPatterns is a comma-separated list of regex patterns for field names to ignore
 	ExcludeFieldPatterns string
 
@@ -32,12 +36,13 @@ type Config struct {
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		IncludeMethods:       false,
-		AllowGetters:         true,
-		ExcludeFieldPatterns: "",
-		MinTypeSimilarity:    0.0, // 0 = use substring matching (current behavior)
-		IgnoreFieldTags:      "",
-		Verbose:              false,
+		IncludeMethods:             false,
+		AllowGetters:               true,
+		AllowAggregatorsConverters: false,
+		ExcludeFieldPatterns:       "",
+		MinTypeSimilarity:          0.0, // 0 = use substring matching (current behavior)
+		IgnoreFieldTags:            "",
+		Verbose:                    false,
 	}
 }
 
@@ -56,6 +61,9 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.BoolVar(&current.AllowGetters, "allow-getters", current.AllowGetters,
 		"allow Get* methods as a substitute for direct field access")
+
+	fs.BoolVar(&current.AllowAggregatorsConverters, "allow-aggregators", current.AllowAggregatorsConverters,
+		"enable detection of slice->non-slice aggregating converters")
 
 	fs.StringVar(&current.ExcludeFieldPatterns, "exclude-fields", current.ExcludeFieldPatterns,
 		"comma-separated regex patterns for field names to ignore (e.g., 'CreatedAt,UpdatedAt,.*ID')")
