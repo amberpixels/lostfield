@@ -26,6 +26,20 @@ func TestC1(t *testing.T) {
 	analysistest.Run(t, testdata, analyzer, "converters/c1")
 }
 
+func TestDelegatingConverters(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that delegating converters (converters that call other converters)
+	// are correctly identified and skipped from validation
+	analysistest.Run(t, testdata, analyzer, "converters/delegate")
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files

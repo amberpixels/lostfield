@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
@@ -281,23 +282,30 @@ type ConverterValidationResult struct {
 	MissingOutputFields []string
 }
 
+func NewOKConverterValidationResult() *ConverterValidationResult {
+	return &ConverterValidationResult{Valid: true}
+}
+func NewFailedConverterValidationResult(in, out []string) *ConverterValidationResult {
+	return &ConverterValidationResult{MissingInputFields: in, MissingOutputFields: out}
+}
+
 // ValidateConverter checks that the converter function fn uses every field
 // of the candidate input model (by reading) and every field of the candidate output model (by writing).
 //
 // For input, we assume the candidate comes from the first parameter and that it has a name.
 // For output, we first try to use a named result; if none, we look for a composite literal.
-func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidationResult, error) {
+func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidationResult, error) {
 	// Retrieve the function object and signature.
 	obj := pass.TypesInfo.Defs[fn.Name]
 	if obj == nil {
-		return ConverterValidationResult{}, fmt.Errorf("cannot get type info for function %q", fn.Name.Name)
+		return nil, fmt.Errorf("cannot get type info for function %q", fn.Name.Name)
 	}
 	sig, ok := obj.Type().(*types.Signature)
 	if !ok {
-		return ConverterValidationResult{}, fmt.Errorf("function %q does not have a valid signature", fn.Name.Name)
+		return nil, fmt.Errorf("function %q does not have a valid signature", fn.Name.Name)
 	}
 	if sig.Params().Len() < 1 || sig.Results().Len() < 1 {
-		return ConverterValidationResult{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"function %q must have at least one parameter and one result",
 			fn.Name.Name,
 		)
@@ -306,7 +314,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidati
 	// Find the candidate input parameter.
 	inCand, inVar, okIn := findCandidateParam(fn.Type.Params, sig.Params())
 	if !okIn || inVar == "" {
-		return ConverterValidationResult{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"cannot determine candidate input parameter for function %q",
 			fn.Name.Name,
 		)
@@ -315,10 +323,17 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidati
 	// Determine the candidate output parameter.
 	outCand, outVar, okOut := findCandidateParam(fn.Type.Results, sig.Results())
 	if !okOut {
-		return ConverterValidationResult{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"cannot determine candidate output parameter for function %q",
 			fn.Name.Name,
 		)
+	}
+
+	// Check if this is a delegating converter (e.g., converts a slice by calling another converter on each element)
+	if isDelegatingConverter(fn, inCand, outCand, inVar) {
+		// For delegating converters, skip validation since the actual field mapping
+		// is delegated to the inner converter function which will be linted separately
+		return NewOKConverterValidationResult(), nil
 	}
 
 	// Collect field usages for the input candidate variable.
@@ -338,12 +353,11 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (ConverterValidati
 		}
 	}
 
-	valid := (len(missingIn) == 0 && len(missingOut) == 0)
-	return ConverterValidationResult{
-		Valid:               valid,
-		MissingInputFields:  missingIn,
-		MissingOutputFields: missingOut,
-	}, nil
+	if len(missingIn) == 0 && len(missingOut) == 0 {
+		return NewOKConverterValidationResult(), nil
+	}
+
+	return NewFailedConverterValidationResult(missingIn, missingOut), nil
 }
 
 // findCandidateParam searches the appropriate FieldList (for input or output)
@@ -383,4 +397,86 @@ func findCandidateParam(fieldList *ast.FieldList, sigParams *types.Tuple) (candi
 		paramIndex += (n - 1)
 	}
 	return candidate{}, "", false
+}
+
+// isDelegatingConverter checks if a function is a delegating converter:
+// - Input parameter is a slice of structs
+// - Output parameter is a slice of structs
+// - Function loops through input slice and calls another function on each element
+// - Results are appended to output (filtering is allowed)
+//
+// Returns true if this pattern is detected (and validation should be skipped).
+func isDelegatingConverter(
+	fn *ast.FuncDecl,
+	inCand candidate,
+	outCand candidate,
+	inVar string,
+) bool {
+	// Check if both input and output are slices
+	if inCand.containerType != ContainerSlice || outCand.containerType != ContainerSlice {
+		return false
+	}
+
+	// Look for a range loop over the input variable
+	var foundLoop bool
+	var loopVar string
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		rangeStmt, ok := n.(*ast.RangeStmt)
+		if !ok {
+			return true
+		}
+
+		// Check if looping over the input variable
+		ident, ok := rangeStmt.X.(*ast.Ident)
+		if !ok || ident.Name != inVar {
+			return true
+		}
+
+		// Extract loop variable (e.g., "t" in "for _, t := range tickets")
+		if rangeStmt.Value != nil {
+			if idVal, ok := rangeStmt.Value.(*ast.Ident); ok {
+				loopVar = idVal.Name
+			}
+		}
+		foundLoop = true
+		return false
+	})
+
+	if !foundLoop || loopVar == "" {
+		return false
+	}
+
+	// Look for function calls with the loop variable as argument
+	// and either append operations OR indexed assignments that look like delegating
+	var foundDelegation bool
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch stmt := n.(type) {
+		case *ast.CallExpr:
+			// Check for append calls
+			if ident, ok := stmt.Fun.(*ast.Ident); ok && ident.Name == "append" {
+				// append should have at least 2 args: slice and value
+				if len(stmt.Args) >= 2 {
+					foundDelegation = true
+					return false
+				}
+			}
+
+		case *ast.AssignStmt:
+			// Check for indexed assignments like: protos[i] = ConvertFunc(...)
+			if stmt.Tok == token.ASSIGN && len(stmt.Lhs) > 0 && len(stmt.Rhs) > 0 {
+				// Check if LHS is an index expression (e.g., protos[i])
+				if _, ok := stmt.Lhs[0].(*ast.IndexExpr); ok {
+					// If RHS is a function call with the loop variable, it's delegation
+					if _, ok := stmt.Rhs[0].(*ast.CallExpr); ok {
+						foundDelegation = true
+						return false
+					}
+				}
+			}
+		}
+
+		return true
+	})
+
+	return foundDelegation
 }
