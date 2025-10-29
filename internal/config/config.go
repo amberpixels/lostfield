@@ -2,13 +2,13 @@ package config
 
 import "flag"
 
-// Linter metadata constants
+// Linter metadata constants.
 const (
 	LinterName = "stickyfields"
 	LinterDoc  = "reports all inconsistent converter functions: ensures sticky fields)"
 )
 
-// Config holds all configuration for the analyzer
+// Config holds all configuration for the analyzer.
 type Config struct {
 	// IncludeMethods enables checking method receivers in addition to plain functions
 	IncludeMethods bool
@@ -24,9 +24,12 @@ type Config struct {
 
 	// IgnoreFieldTags is a comma-separated list of struct tags that mark fields to ignore
 	IgnoreFieldTags string
+
+	// Verbose enables verbose output
+	Verbose bool
 }
 
-// DefaultConfig returns the default configuration
+// DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
 		IncludeMethods:       false,
@@ -34,18 +37,19 @@ func DefaultConfig() Config {
 		ExcludeFieldPatterns: "",
 		MinTypeSimilarity:    0.0, // 0 = use substring matching (current behavior)
 		IgnoreFieldTags:      "",
+		Verbose:              false,
 	}
 }
 
-// current holds the active configuration
+// current holds the active configuration.
 var current = DefaultConfig()
 
-// Get returns the current configuration
+// Get returns the current configuration.
 func Get() Config {
 	return current
 }
 
-// RegisterFlags registers configuration flags with the analyzer's FlagSet
+// RegisterFlags registers configuration flags with the analyzer's FlagSet.
 func RegisterFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&current.IncludeMethods, "include-methods", current.IncludeMethods,
 		"check method receivers in addition to plain functions")
@@ -61,4 +65,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.StringVar(&current.IgnoreFieldTags, "ignore-tags", current.IgnoreFieldTags,
 		"comma-separated struct tags to ignore fields (e.g., 'stickyfields:\"ignore\"')")
+
+	fs.BoolVar(&current.Verbose, "verbose", current.Verbose,
+		"enable verbose output")
 }

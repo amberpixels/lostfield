@@ -74,18 +74,20 @@ func Run(pass *analysis.Pass) (any, error) {
 	}
 
 	// At the end of processing all files, print the total number of warnings.
-	// Probably temporarily: More for debug purposes.
-	// TODO: find a nice way to output reports in linters
-	if warningsTotal > 0 {
-		fmt.Fprintf(
-			os.Stdout,
-			"\nFiles total analyzed: %d. Warnings: %d caught in %d files\n",
-			filesTotal,
-			warningsTotal,
-			filesWarned,
-		)
-	} else {
-		fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
+	// Only print if verbose mode is enabled.
+	cfg := config.Get()
+	if cfg.Verbose {
+		if warningsTotal > 0 {
+			fmt.Fprintf(
+				os.Stdout,
+				"\nFiles total analyzed: %d. Warnings: %d caught in %d files\n",
+				filesTotal,
+				warningsTotal,
+				filesWarned,
+			)
+		} else {
+			fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
+		}
 	}
 
 	return nil, nil //nolint: nilnil // fix later
