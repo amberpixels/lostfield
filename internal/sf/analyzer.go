@@ -49,11 +49,7 @@ func Run(pass *analysis.Pass) (any, error) {
 					return true
 				}
 
-				message := fmt.Sprintf(
-					"converter function is leaking fields:\n missing input fields: %v\n missing output fields: %v",
-					validationResult.MissingInputFields,
-					validationResult.MissingOutputFields,
-				)
+				message := formatConverterValidationMessage(validationResult)
 
 				var buf bytes.Buffer
 				PrettyPrint(&buf, filename, fn, pass, message)
@@ -94,7 +90,77 @@ func Run(pass *analysis.Pass) (any, error) {
 	return nil, nil //nolint: nilnil // fix later
 }
 
-// ContainerType represents the “container” kind for a candidate type.
+// formatConverterValidationMessage creates a human-readable two-column format for missing fields.
+// Example output:
+//
+//	converter function is leaking fields:
+//	 data.CalculatedAt → ??
+//	 data.CreatedAt    → ??
+//	 ??                → output.NewField
+//
+// When there are many fields missing, it simplifies to:
+//
+//	converter function is leaking fields:
+//	 ??  → all output fields
+func formatConverterValidationMessage(result *ConverterValidationResult) string {
+	var buf strings.Builder
+	buf.WriteString("converter function is leaking fields:\n")
+
+	if len(result.MissingInputFields) == 0 && len(result.MissingOutputFields) == 0 {
+		return buf.String()
+	}
+
+	// Use consistent indentation for the table (aligned with 'func' keyword position)
+	// The format is: line_number | code, so we need to indent to align with the code
+	const indent = "      "
+
+	// Simplification: if no input fields are missing but many output fields are, just say "all output fields"
+	// This makes the output more readable when there are dozens of missing output fields
+	if len(result.MissingInputFields) == 0 && len(result.MissingOutputFields) > 5 {
+		buf.WriteString(indent + "??  → all output fields\n")
+		return buf.String()
+	}
+
+	// Similarly, if no output fields are missing but many input fields are, say "all input fields"
+	if len(result.MissingOutputFields) == 0 && len(result.MissingInputFields) > 5 {
+		buf.WriteString(indent + "all input fields → ??\n")
+		return buf.String()
+	}
+
+	// Calculate the maximum length for alignment of the arrow
+	// We need to find the longest field name to align all arrows
+	maxLen := 0
+	for _, field := range result.MissingInputFields {
+		if len(field) > maxLen {
+			maxLen = len(field)
+		}
+	}
+	for _, field := range result.MissingOutputFields {
+		if len(field) > maxLen {
+			maxLen = len(field)
+		}
+	}
+	// Account for the leading space and ensure minimum width
+	if maxLen < 1 {
+		maxLen = 1
+	}
+
+	// Add input fields (missing in output mapping)
+	for _, field := range result.MissingInputFields {
+		padding := strings.Repeat(" ", maxLen-len(field)+1)
+		buf.WriteString(indent + field + padding + "→ ??\n")
+	}
+
+	// Add output fields (missing in input mapping)
+	for _, field := range result.MissingOutputFields {
+		padding := strings.Repeat(" ", maxLen-len("??")+1)
+		buf.WriteString(indent + "??" + padding + "→ " + field + "\n")
+	}
+
+	return buf.String()
+}
+
+// ContainerType represents the "container" kind for a candidate type.
 type ContainerType string
 
 const (

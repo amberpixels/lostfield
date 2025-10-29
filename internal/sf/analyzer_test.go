@@ -83,6 +83,20 @@ func TestDifferentPackagesSameName(t *testing.T) {
 	analysistest.Run(t, testdata, analyzer, "converters/differentPackages")
 }
 
+func TestChainedReturnMethod(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that converters returning (&Type{fields...}).MethodCall()
+	// correctly detect field usage in the composite literal
+	analysistest.Run(t, testdata, analyzer, "converters/chainedReturn")
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files

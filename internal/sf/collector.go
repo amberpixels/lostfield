@@ -210,6 +210,16 @@ func extractKeysFromExpr(expr ast.Expr, candidateName string, keys UsageLookup) 
 				cl = lit
 			}
 		}
+	case *ast.CallExpr:
+		// Handle cases like: return (&Category{...}).MethodCall()
+		// The composite literal is in the receiver of the call
+		if unary, ok := x.Fun.(*ast.SelectorExpr); ok {
+			if unaryRecv, ok := unary.X.(*ast.UnaryExpr); ok && unaryRecv.Op == token.AND {
+				if lit, ok := unaryRecv.X.(*ast.CompositeLit); ok {
+					cl = lit
+				}
+			}
+		}
 	}
 
 	if cl == nil {
