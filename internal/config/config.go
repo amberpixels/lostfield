@@ -31,6 +31,10 @@ type Config struct {
 
 	// Verbose enables verbose output
 	Verbose bool
+
+	// ExcludeGenerated excludes generated code files from analysis
+	// Detects files with "DO NOT EDIT" or similar markers
+	ExcludeGenerated bool
 }
 
 // DefaultConfig returns the default configuration.
@@ -43,6 +47,7 @@ func DefaultConfig() Config {
 		MinTypeSimilarity:          0.0, // 0 = use substring matching (current behavior)
 		IgnoreFieldTags:            "",
 		Verbose:                    false,
+		ExcludeGenerated:           true,
 	}
 }
 
@@ -76,4 +81,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.BoolVar(&current.Verbose, "verbose", current.Verbose,
 		"enable verbose output")
+
+	fs.BoolVar(&current.ExcludeGenerated, "exclude-generated", current.ExcludeGenerated,
+		"exclude generated code files (detected via DO NOT EDIT markers)")
 }
