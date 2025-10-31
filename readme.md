@@ -107,11 +107,14 @@ func ConvertUserToDTO(user User) UserDTO {
 Output:
 
 ```
- |
+   |
 12 | func ConvertUserToDTO(user User) UserDTO {
- |      ^^^^^^^^^^^^^^^^^ converter function is leaking fields:
- |                        missing input fields: []
- |                        missing output fields: [Email]
+   |      ^^^^^^^^^^^^^^^^ detected as converter
+   |
+   = note: missing fields:
+     user.Email     → ??
+     user.CreatedAt → ??
+     ??             → Email
 ```
 
 ## Development Status

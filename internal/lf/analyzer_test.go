@@ -357,3 +357,16 @@ func TestDeprecatedFields(t *testing.T) {
 	// - isDeprecatedField() works properly for fields marked with deprecation comments
 	analysistest.Run(t, testdata, analyzer, "converters/deprecated")
 }
+
+func TestReadmeExample(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
+	}
+
+	// This test validates the example shown in readme.md
+	analysistest.Run(t, testdata, analyzer, "converters/readmeExample")
+}
