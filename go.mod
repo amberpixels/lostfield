@@ -1,4 +1,4 @@
-module github.com/amberpixels/go-stickyfields
+module github.com/amberpixels/lostfield
 
 go 1.25
 

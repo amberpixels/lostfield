@@ -1,4 +1,4 @@
-package sf
+package lf
 
 import (
 	"bufio"
@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/amberpixels/go-stickyfields/internal/config"
+	"github.com/amberpixels/lostfield/internal/config"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -434,13 +434,19 @@ func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
 		// We have the file, but it might not be in pass.Files if it's from an external package
 		// This is a limitation of the current approach - we can only check files in the current analysis pass
 		// For proto-generated files, users should ensure the .pb.go files are included in the analysis
+		_ = allFiles
 	}
 
 	return false
 }
 
 // collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
-func collectMissingFields(st *types.Struct, usedFields UsageLookup, pass *analysis.Pass, usedMethodsArg ...UsageLookup) []string {
+func collectMissingFields(
+	st *types.Struct,
+	usedFields UsageLookup,
+	pass *analysis.Pass,
+	usedMethodsArg ...UsageLookup,
+) []string {
 	cfg := config.Get()
 	var missing []string
 	for i := 0; i < st.NumFields(); i++ {

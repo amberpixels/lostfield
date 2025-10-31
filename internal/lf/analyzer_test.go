@@ -1,5 +1,4 @@
-// internal/sf/analyzer_test.go
-package sf_test
+package lf_test
 
 import (
 	"go/ast"
@@ -9,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/amberpixels/go-stickyfields/internal/sf"
+	"github.com/amberpixels/lostfield/internal/lf"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
@@ -18,9 +17,9 @@ func TestC1(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	analysistest.Run(t, testdata, analyzer, "converters/c1")
@@ -30,9 +29,9 @@ func TestDelegatingConverters(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that delegating converters (converters that call other converters)
@@ -44,9 +43,9 @@ func TestSameTypeFunctions(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that functions with the same input and output type
@@ -58,9 +57,9 @@ func TestBlankIdentifierFields(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that fields marked with blank identifier (_ = model.Field)
@@ -72,9 +71,9 @@ func TestDifferentPackagesSameName(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that converters with same-named types from different packages
@@ -87,9 +86,9 @@ func TestChainedReturnMethod(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that converters returning (&Type{fields...}).MethodCall()
@@ -101,9 +100,9 @@ func TestSliceToNonSlice(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that slice->non-slice conversions are NOT caught as converters
@@ -116,9 +115,9 @@ func TestAggregatingConvertersEnabled(t *testing.T) {
 
 	// Create analyzer with aggregating converters enabled
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test verifies that aggregating converters (slice -> non-slice)
@@ -333,7 +332,7 @@ func TestIsPossibleConverter(t *testing.T) {
 			}
 
 			// Test IsPossibleConverter
-			got := sf.IsPossibleConverter(funcDecl, pass)
+			got := lf.IsPossibleConverter(funcDecl, pass)
 			if got != tt.want {
 				t.Errorf("IsPossibleConverter(%q) = %v, want %v", tt.funcName, got, tt.want)
 			}
@@ -345,9 +344,9 @@ func TestDeprecatedFields(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
-		Name: "stickyfields",
-		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
-		Run:  sf.Run,
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run:  lf.Run,
 	}
 
 	// This test ensures that deprecated fields are handled correctly by the analyzer.

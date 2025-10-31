@@ -1,10 +1,10 @@
-# Go StickyFields
+# LostField
 
 A Go linter that ensures converter functions use all fields from both input and output structs, preventing "leaky" conversions where fields are accidentally omitted.
 
 ## What it does
 
-StickyFields analyzes converter functions (functions that transform one struct type to another) and reports when fields are missing from either:
+`lostfield` analyzes converter functions (functions that transform one struct type to another) and reports when fields are missing from either:
 - **Input fields** - fields that should be read but aren't
 - **Output fields** - fields that should be set but aren't
 
@@ -13,7 +13,7 @@ This helps catch bugs where new fields are added to structs but converter functi
 ## Installation
 
 ```bash
-go install github.com/amberpixels/go-stickyfields/cmd/stickyfields@latest
+go install github.com/amberpixels/lostfield/cmd/lostfield@latest
 ```
 
 ## Usage
@@ -22,13 +22,13 @@ go install github.com/amberpixels/go-stickyfields/cmd/stickyfields@latest
 
 ```bash
 # Run directly
-stickyfields ./...
+lostfield ./...
 
 # With custom flags
-stickyfields -include-methods=true -exclude-fields="CreatedAt,UpdatedAt" ./...
+lostfield -include-methods=true -exclude-fields="CreatedAt,UpdatedAt" ./...
 
 # With go vet
-go vet -vettool=$(which stickyfields) ./...
+go vet -vettool=$(which lostfield) ./...
 ```
 
 ### With golangci-lint
@@ -40,10 +40,10 @@ version: "2"
 
 linters:
   enable:
-    - stickyfields
+    - lostfield
 
 linters-settings:
-  stickyfields:
+  lostfield:
     include-methods: false
     allow-getters: true
     exclude-fields: "CreatedAt,UpdatedAt"
@@ -67,16 +67,16 @@ See [.golangci.example.yml](.golangci.example.yml) for detailed configuration op
 
 ```bash
 # Check only plain functions (default)
-stickyfields ./...
+lostfield ./...
 
 # Also check methods
-stickyfields -include-methods=true ./...
+lostfield -include-methods=true ./...
 
 # Ignore timestamp fields
-stickyfields -exclude-fields="CreatedAt,UpdatedAt,DeletedAt" ./...
+lostfield -exclude-fields="CreatedAt,UpdatedAt,DeletedAt" ./...
 
 # Strict mode: no getters, check methods
-stickyfields -include-methods=true -allow-getters=false ./...
+lostfield -include-methods=true -allow-getters=false ./...
 ```
 
 ## Example
