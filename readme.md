@@ -117,16 +117,10 @@ Output:
      ??             → Email
 ```
 
-## Development Status
-
-⚠️ **Under active development** - API and behavior may change.
-
-See [.claude/roadmap.md](.claude/roadmap.md) for development roadmap and future plans.
-
 ## Contributing
 
-Contributions are welcome! Please check the roadmap for planned features and areas that need work.
+Contributions are welcome!
 
 ## License
 
-MIT
+[MIT](LICENSE)
