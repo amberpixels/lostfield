@@ -21,12 +21,6 @@ go install github.com/amberpixels/lostfield/cmd/lostfield@latest
 ### Standalone
 
 ```bash
-# Run directly
-lostfield ./...
-
-# With custom flags
-lostfield -include-methods=true -exclude-fields="CreatedAt,UpdatedAt" ./...
-
 # With go vet
 go vet -vettool=$(which lostfield) ./...
 ```
