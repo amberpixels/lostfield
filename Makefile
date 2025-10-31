@@ -2,7 +2,6 @@
 export PATH := $(PATH):$(shell go env GOPATH)/bin
 GOLANGCI_LINT := $(shell which golangci-lint)
 BINARY_NAME := lostfield
-BINARY_ALIAS := lofi
 INSTALL_PATH := $(shell go env GOPATH)/bin
 
 # Default target
@@ -32,10 +31,8 @@ test:
 install:
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_PATH)..."
 	@go install ./cmd/lostfield
-	@ln -sf $(INSTALL_PATH)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_ALIAS)
 	@echo "✓ $(BINARY_NAME) installed successfully"
-	@echo "✓ Alias '$(BINARY_ALIAS)' created"
-	@echo "You can now run 'go vet -vettool=\$$(which $(BINARY_ALIAS)) ./...' in any Go project"
+	@echo "You can now run 'go vet -vettool=\$$(which $(BINARY_NAME)) ./...' in any Go project"
 
 # Run the linter on a specified path (usage: make run [TARGET=path])
 run:
