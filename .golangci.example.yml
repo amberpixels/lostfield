@@ -1,14 +1,14 @@
-# Example golangci-lint configuration for stickyfields linter
+# Example golangci-lint configuration for lostfield linter
 # Copy this file to .golangci.yml and adjust settings as needed
 
 version: "2"
 
 linters:
   enable:
-    - stickyfields
+    - lostfield
 
 linters-settings:
-  stickyfields:
+  lostfield:
     # Check method receivers in addition to plain functions
     # Default: false
     # When enabled, the linter will also check methods (functions with receivers)
@@ -40,28 +40,27 @@ linters-settings:
     # Comma-separated struct tags that mark fields to ignore
     # Default: "" (empty)
     # Fields with these tags will be ignored by the linter
-    # Example: 'stickyfields:"ignore",json:"-"'
+    # Example: 'lostfield:"ignore",json:"-"'
     # Note: This is a planned feature for future implementation
     ignore-tags: ""
-
 # Example usage scenarios:
 
 # Scenario 1: Strict checking (check everything)
 # linters-settings:
-#   stickyfields:
+#   lostfield:
 #     include-methods: true
 #     allow-getters: false
 #     exclude-fields: ""
 
 # Scenario 2: Lenient checking (ignore common patterns)
 # linters-settings:
-#   stickyfields:
+#   lostfield:
 #     include-methods: false
 #     allow-getters: true
 #     exclude-fields: "CreatedAt,UpdatedAt,DeletedAt,.*ID,.*At"
 
 # Scenario 3: Focus on converters only (default)
 # linters-settings:
-#   stickyfields:
+#   lostfield:
 #     include-methods: false
 #     allow-getters: true

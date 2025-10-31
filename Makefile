@@ -1,8 +1,8 @@
 # Variables
 export PATH := $(PATH):$(shell go env GOPATH)/bin
 GOLANGCI_LINT := $(shell which golangci-lint)
-BINARY_NAME := stickyfields
-BINARY_ALIAS := sf
+BINARY_NAME := lostfield
+BINARY_ALIAS := lofi
 INSTALL_PATH := $(shell go env GOPATH)/bin
 
 # Default target
@@ -31,7 +31,7 @@ test:
 # Install the linter binary to GOPATH/bin
 install:
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_PATH)..."
-	@go install ./cmd/stickyfields
+	@go install ./cmd/lostfield
 	@ln -sf $(INSTALL_PATH)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_ALIAS)
 	@echo "✓ $(BINARY_NAME) installed successfully"
 	@echo "✓ Alias '$(BINARY_ALIAS)' created"

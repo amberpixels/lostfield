@@ -4,7 +4,7 @@ import (
 	"flag"
 	"testing"
 
-	"github.com/amberpixels/go-stickyfields/internal/config"
+	"github.com/amberpixels/lostfield/internal/config"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -109,10 +109,10 @@ func TestRegisterFlags(t *testing.T) {
 		{
 			name:     "ignore-tags flag",
 			flagName: "-ignore-tags",
-			value:    "json:\"-\",stickyfields:\"ignore\"",
+			value:    "json:\"-\",lostfield:\"ignore\"",
 			checkFunc: func(t *testing.T) {
 				cfg := config.Get()
-				want := "json:\"-\",stickyfields:\"ignore\""
+				want := "json:\"-\",lostfield:\"ignore\""
 				if cfg.IgnoreFieldTags != want {
 					t.Errorf("IgnoreFieldTags: got %q, want %q", cfg.IgnoreFieldTags, want)
 				}

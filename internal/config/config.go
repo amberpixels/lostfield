@@ -4,8 +4,8 @@ import "flag"
 
 // Linter metadata constants.
 const (
-	LinterName = "stickyfields"
-	LinterDoc  = "reports all inconsistent converter functions: ensures sticky fields)"
+	LinterName = "lostfield"
+	LinterDoc  = "reports all inconsistent converter functions: finds lost fields)"
 )
 
 // Config holds all configuration for the analyzer.
@@ -87,7 +87,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"minimum type name similarity ratio (0.0-1.0, 0=substring matching, higher=stricter)")
 
 	fs.StringVar(&current.IgnoreFieldTags, "ignore-tags", current.IgnoreFieldTags,
-		"comma-separated struct tags to ignore fields (e.g., 'stickyfields:\"ignore\"')")
+		"comma-separated struct tags to ignore fields (e.g., 'lostfield:\"ignore\"')")
 
 	fs.BoolVar(&current.Verbose, "verbose", current.Verbose,
 		"enable verbose output")

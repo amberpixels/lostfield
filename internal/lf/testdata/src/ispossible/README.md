@@ -54,7 +54,7 @@ Currently commented out in tests. This is a known bug mentioned in `analyzer.go:
 ## Running Tests
 
 ```bash
-go test -v ./internal/sf -run TestIsPossibleConverter
+go test -v ./internal/lf -run TestIsPossibleConverter
 ```
 
 ## Coverage
