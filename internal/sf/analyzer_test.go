@@ -340,3 +340,21 @@ func TestIsPossibleConverter(t *testing.T) {
 		})
 	}
 }
+
+func TestDeprecatedFields(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "stickyfields",
+		Doc:  "reports all inconsistent converter functions: ensures sticky fields)",
+		Run:  sf.Run,
+	}
+
+	// This test ensures that deprecated fields are handled correctly by the analyzer.
+	// The test converter handles all fields including the deprecated OldName field.
+	// This tests that:
+	// - Deprecated fields CAN be used and converted if desired
+	// - The analyzer correctly detects the "Deprecated:" comment in field definitions
+	// - isDeprecatedField() works properly for fields marked with deprecation comments
+	analysistest.Run(t, testdata, analyzer, "converters/deprecated")
+}

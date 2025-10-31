@@ -35,6 +35,15 @@ type Config struct {
 	// ExcludeGenerated excludes generated code files from analysis
 	// Detects files with "DO NOT EDIT" or similar markers
 	ExcludeGenerated bool
+
+	// ExcludeDeprecated excludes deprecated fields from validation.
+	// Deprecated fields are identified by "Deprecated:" in their documentation comments.
+	// This is useful when handling proto-generated code or legacy APIs where deprecated
+	// fields are intentionally not converted.
+	// Note: For protobuf-generated files to be recognized as deprecated, ensure the .pb.go
+	// files are included in the analysis (they should be if you run "go vet ./..." in the
+	// directory containing them).
+	ExcludeDeprecated bool
 }
 
 // DefaultConfig returns the default configuration.
@@ -48,6 +57,7 @@ func DefaultConfig() Config {
 		IgnoreFieldTags:            "",
 		Verbose:                    false,
 		ExcludeGenerated:           true,
+		ExcludeDeprecated:          false,
 	}
 }
 
@@ -84,4 +94,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.BoolVar(&current.ExcludeGenerated, "exclude-generated", current.ExcludeGenerated,
 		"exclude generated code files (detected via DO NOT EDIT markers)")
+
+	fs.BoolVar(&current.ExcludeDeprecated, "exclude-deprecated", current.ExcludeDeprecated,
+		"exclude deprecated fields from validation (marked with Deprecated: comments)")
 }

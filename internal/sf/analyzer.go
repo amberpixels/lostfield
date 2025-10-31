@@ -359,14 +359,100 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	return false
 }
 
+// isDeprecatedField checks if a field is marked as deprecated by looking for
+// "Deprecated:" in its documentation comment or by checking for deprecated markers
+// in protobuf-generated code (via tags or field structure hints).
+func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
+	if field == nil || pass == nil {
+		return false
+	}
+
+	fieldPos := field.Pos()
+	if !fieldPos.IsValid() {
+		return false
+	}
+
+	fieldName := field.Name()
+
+	// Get the file position
+	positionInfo := pass.Fset.Position(fieldPos)
+	filename := positionInfo.Filename
+
+	// First, try to find the field in pass.Files (local code)
+	for _, file := range pass.Files {
+		// Check if this is the right file
+		filePos := pass.Fset.Position(file.Pos())
+		if filePos.Filename != filename {
+			continue
+		}
+
+		// Walk the AST to find struct definitions and check their fields
+		var foundDeprecated bool
+		ast.Inspect(file, func(n ast.Node) bool {
+			structType, ok := n.(*ast.StructType)
+			if !ok {
+				return true
+			}
+
+			// Check if the field is in this struct
+			if structType.Fields == nil {
+				return true
+			}
+
+			for _, f := range structType.Fields.List {
+				// Check if this field matches our target field by name
+				if f.Names != nil {
+					for _, name := range f.Names {
+						if name.Name == fieldName {
+							// Found our field, check its comments
+							if f.Doc != nil {
+								for _, comment := range f.Doc.List {
+									if strings.Contains(comment.Text, "Deprecated:") {
+										foundDeprecated = true
+										return false
+									}
+								}
+							}
+							return false
+						}
+					}
+				}
+			}
+			return true
+		})
+
+		if foundDeprecated {
+			return true
+		}
+	}
+
+	// For protobuf-generated code and other imported packages, we need to search more broadly.
+	// Try to find all files in the fileset and search for the field definition with comments.
+	if allFiles := pass.Fset.File(fieldPos); allFiles != nil {
+		// TODO: not implemented yet in a full manner
+		// Note:
+		// We have the file, but it might not be in pass.Files if it's from an external package
+		// This is a limitation of the current approach - we can only check files in the current analysis pass
+		// For proto-generated files, users should ensure the .pb.go files are included in the analysis
+	}
+
+	return false
+}
+
 // collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
-func collectMissingFields(st *types.Struct, usedFields UsageLookup, usedMethodsArg ...UsageLookup) []string {
+func collectMissingFields(st *types.Struct, usedFields UsageLookup, pass *analysis.Pass, usedMethodsArg ...UsageLookup) []string {
 	cfg := config.Get()
 	var missing []string
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
 		// adjust this as needed.
 		if !field.Exported() {
+			continue
+		}
+
+		// Skip deprecated fields if configured
+		deprecated := isDeprecatedField(field, pass)
+		if cfg.ExcludeDeprecated && deprecated {
 			continue
 		}
 
@@ -464,7 +550,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 
 	// Check if this is an aggregating converter (slice -> non-slice with slice field)
 	if isAgg, sliceFieldName := isAggregatingConverter(inCand, outCand); isAgg {
-		result := validateAggregatingConverter(fn, inCand, outCand, inVar, sliceFieldName)
+		result := validateAggregatingConverter(fn, inCand, outCand, inVar, sliceFieldName, pass)
 		if result != nil {
 			result.ConverterType = ConverterTypeAggregating
 		}
@@ -474,14 +560,14 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 	// Collect field usages for the input candidate variable.
 	fieldsUsedModelIn := CollectUsedFields(fn.Body, inVar)
 	methodsUsedModelIn := CollectUsedMethods(fn.Body, inVar)
-	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, methodsUsedModelIn)
+	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, methodsUsedModelIn)
 	for i, m := range missingIn {
 		missingIn[i] = inVar + "." + m
 	}
 
 	// Collect field usages for the output candidate.
 	fieldsUsedModelOut := CollectOutputFields(fn, outVar, outCand.name)
-	missingOut := collectMissingFields(outCand.structType, fieldsUsedModelOut)
+	missingOut := collectMissingFields(outCand.structType, fieldsUsedModelOut, pass)
 	if outVar != "" {
 		for i, m := range missingOut {
 			missingOut[i] = outVar + "." + m
@@ -693,6 +779,7 @@ func validateAggregatingConverter(
 	outCand candidate,
 	inVar string,
 	sliceFieldName string,
+	pass *analysis.Pass,
 ) *ConverterValidationResult {
 	// Find the loop variable (e.g., "detail" in "for _, detail := range details")
 	loopVar := findLoopVariable(fn, inVar)
@@ -704,7 +791,7 @@ func validateAggregatingConverter(
 	// Validate that all input fields are used through the loop variable
 	fieldsUsedModelIn := CollectUsedFields(fn.Body, loopVar)
 	methodsUsedModelIn := CollectUsedMethods(fn.Body, loopVar)
-	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, methodsUsedModelIn)
+	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, methodsUsedModelIn)
 	for i, m := range missingIn {
 		missingIn[i] = loopVar + "." + m
 	}
@@ -735,7 +822,7 @@ func validateAggregatingConverter(
 
 	// Collect fields that are set in composite literals of the slice element type
 	fieldsUsedInSliceElem := CollectOutputFields(fn, "", sliceElemTypeName)
-	missingOut := collectMissingFields(sliceElemType, fieldsUsedInSliceElem)
+	missingOut := collectMissingFields(sliceElemType, fieldsUsedInSliceElem, pass)
 	if len(missingOut) > 0 {
 		for i, m := range missingOut {
 			missingOut[i] = sliceFieldName + "[]." + m
