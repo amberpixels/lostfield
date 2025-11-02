@@ -30,6 +30,12 @@ type Config struct {
 	// Default: []
 	ExcludeFieldPatterns []string
 
+	// ExcludeConverterPatterns is a comma-separated list of glob patterns for function/method names to exclude from converter detection.
+	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
+	// Examples: "Get*", "Map*", "to*", "*Helper"
+	// Default: []
+	ExcludeConverterPatterns []string
+
 	// MinTypeNameSimilarity is the minimum type name similarity ratio (0.0-1.0, 0=substring matching)
 	MinTypeNameSimilarity float64
 
@@ -57,14 +63,15 @@ type Config struct {
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		AllowMethodConverters: true,
-		AllowGetters:          true,
-		AllowAggregators:      true,
-		ExcludeFieldPatterns:  []string{},
-		MinTypeNameSimilarity: 0.0, // 0 = use strict substring matching.
-		IgnoreFieldTags:       []string{},
-		IncludeGenerated:      false,
-		IgnoreDeprecated:      false,
+		AllowMethodConverters:    true,
+		AllowGetters:             true,
+		AllowAggregators:         true,
+		ExcludeFieldPatterns:     []string{},
+		ExcludeConverterPatterns: []string{},
+		MinTypeNameSimilarity:    0.0, // 0 = use strict substring matching.
+		IgnoreFieldTags:          []string{},
+		IncludeGenerated:         false,
+		IgnoreDeprecated:         false,
 
 		Verbose: false, // Quiet output by default
 	}
@@ -103,6 +110,15 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"comma-separated regex patterns for field names to ignore (e.g., 'CreatedAt,UpdatedAt,.*ID')",
 		func(s string) error {
 			current.ExcludeFieldPatterns = splitCommaSeparated(s)
+			return nil
+		},
+	)
+
+	fs.Func(
+		"exclude-converters",
+		"comma-separated glob patterns for function/method names to exclude from converter detection (e.g., 'Get*,Map*,to*')",
+		func(s string) error {
+			current.ExcludeConverterPatterns = splitCommaSeparated(s)
 			return nil
 		},
 	)

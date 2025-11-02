@@ -41,6 +41,10 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("ExcludeFieldPatterns: got %q, want empty string", cfg.ExcludeFieldPatterns)
 	}
 
+	if len(cfg.ExcludeConverterPatterns) > 0 {
+		t.Errorf("ExcludeConverterPatterns: got %q, want empty string", cfg.ExcludeConverterPatterns)
+	}
+
 	if cfg.MinTypeNameSimilarity != 0.0 {
 		t.Errorf("MinTypeSimilarity: got %v, want 0.0", cfg.MinTypeNameSimilarity)
 	}
@@ -109,6 +113,18 @@ func TestRegisterFlags(t *testing.T) {
 			},
 		},
 		{
+			name:     "exclude-converters flag",
+			flagName: "-exclude-converters",
+			value:    "Get*,Map*,to*",
+			checkFunc: func(t *testing.T) {
+				cfg := config.Get()
+				want := "Get*,Map*,to*"
+				if strings.Join(cfg.ExcludeConverterPatterns, ",") != want {
+					t.Errorf("ExcludeConverterPatterns: got %q, want %q", cfg.ExcludeConverterPatterns, want)
+				}
+			},
+		},
+		{
 			name:     "min-similarity flag",
 			flagName: "-min-similarity",
 			value:    "0.8",
@@ -168,6 +184,7 @@ func TestConfigGet(t *testing.T) {
 	_ = cfg.IncludeGenerated
 	_ = cfg.IgnoreDeprecated
 	_ = cfg.ExcludeFieldPatterns
+	_ = cfg.ExcludeConverterPatterns
 	_ = cfg.MinTypeNameSimilarity
 	_ = cfg.IgnoreFieldTags
 }

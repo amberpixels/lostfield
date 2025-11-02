@@ -16,6 +16,17 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// MatchesAnyPattern checks if a name matches any of the glob patterns.
+// Returns true if the name matches any pattern, false otherwise.
+func MatchesAnyPattern(name string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matched, err := filepath.Match(pattern, name); err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
 // isGeneratedFile checks if a file appears to be generated code by looking for
 // common "DO NOT EDIT" markers in the first few lines of the file.
 func isGeneratedFile(filename string) bool {
@@ -265,6 +276,11 @@ func extractCandidateType(t types.Type) (candidate, bool) {
 // TODO: it can't be the same type e.g. HandleRewrites(sectionRewrites) (string, SectionRewrite, erro)
 func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	cfg := config.Get()
+
+	// Check if the function name matches any exclusion patterns
+	if len(cfg.ExcludeConverterPatterns) > 0 && MatchesAnyPattern(fn.Name.Name, cfg.ExcludeConverterPatterns) {
+		return false
+	}
 
 	// If we're not including methods and this function has a receiver, skip it.
 	if !cfg.AllowMethodConverters && fn.Recv != nil {

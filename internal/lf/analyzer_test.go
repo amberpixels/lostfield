@@ -370,3 +370,95 @@ func TestReadmeExample(t *testing.T) {
 	// This test validates the example shown in readme.md
 	analysistest.Run(t, testdata, analyzer, "converters/readmeExample")
 }
+
+// TestMatchesAnyPattern tests the glob pattern matching logic.
+func TestMatchesAnyPattern(t *testing.T) {
+	tests := []struct {
+		name     string
+		funcName string
+		patterns []string
+		want     bool
+	}{
+		{
+			name:     "matches Get* pattern",
+			funcName: "GetUser",
+			patterns: []string{"Get*"},
+			want:     true,
+		},
+		{
+			name:     "matches Map* pattern",
+			funcName: "MapResponse",
+			patterns: []string{"Map*"},
+			want:     true,
+		},
+		{
+			name:     "matches to* pattern",
+			funcName: "toDTO",
+			patterns: []string{"to*"},
+			want:     true,
+		},
+		{
+			name:     "matches *Helper pattern",
+			funcName: "ConvertHelper",
+			patterns: []string{"*Helper"},
+			want:     true,
+		},
+		{
+			name:     "matches one of multiple patterns",
+			funcName: "MapUser",
+			patterns: []string{"Get*", "Map*", "to*"},
+			want:     true,
+		},
+		{
+			name:     "does not match any pattern",
+			funcName: "ConvertUser",
+			patterns: []string{"Get*", "Map*", "to*"},
+			want:     false,
+		},
+		{
+			name:     "empty patterns list",
+			funcName: "GetUser",
+			patterns: []string{},
+			want:     false,
+		},
+		{
+			name:     "exact match pattern",
+			funcName: "GetUser",
+			patterns: []string{"GetUser"},
+			want:     true,
+		},
+		{
+			name:     "single char wildcard ?",
+			funcName: "GetA",
+			patterns: []string{"Get?"},
+			want:     true,
+		},
+		{
+			name:     "single char wildcard does not match multiple",
+			funcName: "GetAB",
+			patterns: []string{"Get?"},
+			want:     false,
+		},
+		{
+			name:     "middle wildcard",
+			funcName: "ConvertUserToDTO",
+			patterns: []string{"Convert*ToDTO"},
+			want:     true,
+		},
+		{
+			name:     "case sensitive matching",
+			funcName: "getUser",
+			patterns: []string{"Get*"},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lf.MatchesAnyPattern(tt.funcName, tt.patterns)
+			if got != tt.want {
+				t.Errorf("MatchesAnyPattern(%q, %v) = %v, want %v", tt.funcName, tt.patterns, got, tt.want)
+			}
+		})
+	}
+}
