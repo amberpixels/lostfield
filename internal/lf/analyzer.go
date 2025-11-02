@@ -68,7 +68,7 @@ func Run(pass *analysis.Pass) (any, error) {
 		}
 
 		// Skip generated files if configured.
-		if cfg.ExcludeGenerated && isGeneratedFile(filename) {
+		if !cfg.IncludeGenerated && isGeneratedFile(filename) {
 			continue
 		}
 
@@ -267,7 +267,7 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	cfg := config.Get()
 
 	// If we're not including methods and this function has a receiver, skip it.
-	if !cfg.IncludeMethods && fn.Recv != nil {
+	if !cfg.AllowMethodConverters && fn.Recv != nil {
 		return false
 	}
 
@@ -331,7 +331,7 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 			if inCand.containerType == ContainerSlice || inCand.containerType == ContainerMap {
 				if inCand.containerType != outCand.containerType {
 					// Special case: slice input to non-slice output may be an aggregating converter
-					if cfg.AllowAggregatorsConverters && inCand.containerType == ContainerSlice {
+					if cfg.AllowAggregators && inCand.containerType == ContainerSlice {
 						if isAgg, _ := isAggregatingConverter(inCand, outCand); isAgg {
 							// For aggregating converters, we consider them as converters based on
 							// the presence of a slice field in the output, regardless of name similarity.
@@ -458,7 +458,7 @@ func collectMissingFields(
 
 		// Skip deprecated fields if configured
 		deprecated := isDeprecatedField(field, pass)
-		if cfg.ExcludeDeprecated && deprecated {
+		if cfg.IgnoreDeprecated && deprecated {
 			continue
 		}
 

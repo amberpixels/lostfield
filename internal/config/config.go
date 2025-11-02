@@ -1,6 +1,9 @@
 package config
 
-import "flag"
+import (
+	"flag"
+	"strings"
+)
 
 // Linter metadata constants.
 const (
@@ -10,54 +13,60 @@ const (
 
 // Config holds all configuration for the analyzer.
 type Config struct {
-	// IncludeMethods enables checking method receivers in addition to plain functions
-	IncludeMethods bool
+	// AllowMethodConverters enables looking for converters in methods in addition to plain functions.
+	// Default: true
+	AllowMethodConverters bool
 
 	// AllowGetters allows Get* methods as a substitute for field access
+	// Default: true
 	AllowGetters bool
 
-	// AllowAggregatorsConverters enables detection of slice->non-slice converters
-	// where the output struct contains a field that holds the converted slice
-	AllowAggregatorsConverters bool
+	// AllowAggregators enables detection of slice->non-slice converters
+	// where the output struct contains a field that holds the converted slice.
+	// Default: true
+	AllowAggregators bool
 
 	// ExcludeFieldPatterns is a comma-separated list of regex patterns for field names to ignore
-	ExcludeFieldPatterns string
+	// Default: []
+	ExcludeFieldPatterns []string
 
-	// MinTypeSimilarity is the minimum type name similarity ratio (0.0-1.0, 0=substring matching)
-	MinTypeSimilarity float64
+	// MinTypeNameSimilarity is the minimum type name similarity ratio (0.0-1.0, 0=substring matching)
+	MinTypeNameSimilarity float64
 
-	// IgnoreFieldTags is a comma-separated list of struct tags that mark fields to ignore
-	IgnoreFieldTags string
+	// IgnoreFieldTags is a comma-separated list of struct tags that mark fields to be ignored.
+	// Default: []
+	IgnoreFieldTags []string
 
-	// Verbose enables verbose output
-	Verbose bool
+	// IncludeGenerated includes generated code files in analysis.
+	// Default: false
+	IncludeGenerated bool
 
-	// ExcludeGenerated excludes generated code files from analysis
-	// Detects files with "DO NOT EDIT" or similar markers
-	ExcludeGenerated bool
-
-	// ExcludeDeprecated excludes deprecated fields from validation.
+	// IgnoreDeprecated makes linter to ignore lost fields if they are deprecated.
+	//
 	// Deprecated fields are identified by "Deprecated:" in their documentation comments.
-	// This is useful when handling proto-generated code or legacy APIs where deprecated
-	// fields are intentionally not converted.
-	// Note: For protobuf-generated files to be recognized as deprecated, ensure the .pb.go
-	// files are included in the analysis (they should be if you run "go vet ./..." in the
-	// directory containing them).
-	ExcludeDeprecated bool
+	//
+	// Note: (Experimental): this might not work if source of the field is third-party,
+	//       or out-of-analysis, e.g. generated file.
+	//       So we won't be able to readme the comment and find that the field is deprecated.
+	IgnoreDeprecated bool
+
+	// Verbose enables verbose output.
+	Verbose bool
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		IncludeMethods:             false,
-		AllowGetters:               true,
-		AllowAggregatorsConverters: false,
-		ExcludeFieldPatterns:       "",
-		MinTypeSimilarity:          0.0, // 0 = use substring matching (current behavior)
-		IgnoreFieldTags:            "",
-		Verbose:                    false,
-		ExcludeGenerated:           true,
-		ExcludeDeprecated:          false,
+		AllowMethodConverters: true,
+		AllowGetters:          true,
+		AllowAggregators:      true,
+		ExcludeFieldPatterns:  []string{},
+		MinTypeNameSimilarity: 0.0, // 0 = use strict substring matching.
+		IgnoreFieldTags:       []string{},
+		IncludeGenerated:      false,
+		IgnoreDeprecated:      false,
+
+		Verbose: false, // Quiet output by default
 	}
 }
 
@@ -69,32 +78,50 @@ func Get() Config {
 	return current
 }
 
+// splitCommaSeparated splits a comma-separated string into a slice of strings.
+// Returns an empty slice if the input string is empty.
+func splitCommaSeparated(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	return strings.Split(s, ",")
+}
+
 // RegisterFlags registers configuration flags with the analyzer's FlagSet.
 func RegisterFlags(fs *flag.FlagSet) {
-	fs.BoolVar(&current.IncludeMethods, "include-methods", current.IncludeMethods,
+	fs.BoolVar(&current.AllowMethodConverters, "include-methods", current.AllowMethodConverters,
 		"check method receivers in addition to plain functions")
 
 	fs.BoolVar(&current.AllowGetters, "allow-getters", current.AllowGetters,
 		"allow Get* methods as a substitute for direct field access")
 
-	fs.BoolVar(&current.AllowAggregatorsConverters, "allow-aggregators", current.AllowAggregatorsConverters,
+	fs.BoolVar(&current.AllowAggregators, "allow-aggregators", current.AllowAggregators,
 		"enable detection of slice->non-slice aggregating converters")
 
-	fs.StringVar(&current.ExcludeFieldPatterns, "exclude-fields", current.ExcludeFieldPatterns,
-		"comma-separated regex patterns for field names to ignore (e.g., 'CreatedAt,UpdatedAt,.*ID')")
+	fs.Func(
+		"exclude-fields",
+		"comma-separated regex patterns for field names to ignore (e.g., 'CreatedAt,UpdatedAt,.*ID')",
+		func(s string) error {
+			current.ExcludeFieldPatterns = splitCommaSeparated(s)
+			return nil
+		},
+	)
 
-	fs.Float64Var(&current.MinTypeSimilarity, "min-similarity", current.MinTypeSimilarity,
+	fs.Float64Var(&current.MinTypeNameSimilarity, "min-similarity", current.MinTypeNameSimilarity,
 		"minimum type name similarity ratio (0.0-1.0, 0=substring matching, higher=stricter)")
 
-	fs.StringVar(&current.IgnoreFieldTags, "ignore-tags", current.IgnoreFieldTags,
-		"comma-separated struct tags to ignore fields (e.g., 'lostfield:\"ignore\"')")
+	fs.Func("ignore-tags", "comma-separated struct tags to ignore fields (e.g., 'lostfield:\"ignore\"')",
+		func(s string) error {
+			current.IgnoreFieldTags = splitCommaSeparated(s)
+			return nil
+		})
 
 	fs.BoolVar(&current.Verbose, "verbose", current.Verbose,
 		"enable verbose output")
 
-	fs.BoolVar(&current.ExcludeGenerated, "exclude-generated", current.ExcludeGenerated,
-		"exclude generated code files (detected via DO NOT EDIT markers)")
+	fs.BoolVar(&current.IncludeGenerated, "include-generated", current.IncludeGenerated,
+		"include generated code files in analysis (default: exclude)")
 
-	fs.BoolVar(&current.ExcludeDeprecated, "exclude-deprecated", current.ExcludeDeprecated,
-		"exclude deprecated fields from validation (marked with Deprecated: comments)")
+	fs.BoolVar(&current.IgnoreDeprecated, "include-deprecated", current.IgnoreDeprecated,
+		"include deprecated fields in validation (default: exclude)")
 }

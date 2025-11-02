@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"flag"
+	"strings"
 	"testing"
 
 	"github.com/amberpixels/lostfield/internal/config"
@@ -10,28 +11,41 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	// Verify defaults match expected values
-	if cfg.IncludeMethods != false {
-		t.Errorf("IncludeMethods: got %v, want false", cfg.IncludeMethods)
+	// Verify boolean defaults
+	if cfg.AllowMethodConverters != true {
+		t.Errorf("IncludeMethods: got %v, want true", cfg.AllowMethodConverters)
 	}
 
 	if cfg.AllowGetters != true {
 		t.Errorf("AllowGetters: got %v, want true", cfg.AllowGetters)
 	}
 
-	if cfg.AllowAggregatorsConverters != false {
-		t.Errorf("AllowAggregatorsConverters: got %v, want false", cfg.AllowAggregatorsConverters)
+	if cfg.AllowAggregators != true {
+		t.Errorf("AllowAggregators: got %v, want true", cfg.AllowAggregators)
 	}
 
-	if cfg.ExcludeFieldPatterns != "" {
+	if cfg.Verbose != false {
+		t.Errorf("Verbose: got %v, want false", cfg.Verbose)
+	}
+
+	if cfg.IncludeGenerated != false {
+		t.Errorf("IncludeGenerated: got %v, want false", cfg.IncludeGenerated)
+	}
+
+	if cfg.IgnoreDeprecated != false {
+		t.Errorf("IncludeDeprecated: got %v, want false", cfg.IgnoreDeprecated)
+	}
+
+	// Verify non-boolean defaults
+	if len(cfg.ExcludeFieldPatterns) > 0 {
 		t.Errorf("ExcludeFieldPatterns: got %q, want empty string", cfg.ExcludeFieldPatterns)
 	}
 
-	if cfg.MinTypeSimilarity != 0.0 {
-		t.Errorf("MinTypeSimilarity: got %v, want 0.0", cfg.MinTypeSimilarity)
+	if cfg.MinTypeNameSimilarity != 0.0 {
+		t.Errorf("MinTypeSimilarity: got %v, want 0.0", cfg.MinTypeNameSimilarity)
 	}
 
-	if cfg.IgnoreFieldTags != "" {
+	if len(cfg.IgnoreFieldTags) > 0 {
 		t.Errorf("IgnoreFieldTags: got %q, want empty string", cfg.IgnoreFieldTags)
 	}
 }
@@ -55,7 +69,7 @@ func TestRegisterFlags(t *testing.T) {
 			value:    "true",
 			checkFunc: func(t *testing.T) {
 				cfg := config.Get()
-				if !cfg.IncludeMethods {
+				if !cfg.AllowMethodConverters {
 					t.Errorf("IncludeMethods: got false, want true")
 				}
 			},
@@ -77,8 +91,8 @@ func TestRegisterFlags(t *testing.T) {
 			value:    "true",
 			checkFunc: func(t *testing.T) {
 				cfg := config.Get()
-				if !cfg.AllowAggregatorsConverters {
-					t.Errorf("AllowAggregatorsConverters: got false, want true")
+				if !cfg.AllowAggregators {
+					t.Errorf("AllowAggregators: got false, want true")
 				}
 			},
 		},
@@ -89,7 +103,7 @@ func TestRegisterFlags(t *testing.T) {
 			checkFunc: func(t *testing.T) {
 				cfg := config.Get()
 				want := "CreatedAt,UpdatedAt"
-				if cfg.ExcludeFieldPatterns != want {
+				if strings.Join(cfg.ExcludeFieldPatterns, ",") != want {
 					t.Errorf("ExcludeFieldPatterns: got %q, want %q", cfg.ExcludeFieldPatterns, want)
 				}
 			},
@@ -101,8 +115,8 @@ func TestRegisterFlags(t *testing.T) {
 			checkFunc: func(t *testing.T) {
 				cfg := config.Get()
 				want := 0.8
-				if cfg.MinTypeSimilarity != want {
-					t.Errorf("MinTypeSimilarity: got %v, want %v", cfg.MinTypeSimilarity, want)
+				if cfg.MinTypeNameSimilarity != want {
+					t.Errorf("MinTypeSimilarity: got %v, want %v", cfg.MinTypeNameSimilarity, want)
 				}
 			},
 		},
@@ -113,7 +127,7 @@ func TestRegisterFlags(t *testing.T) {
 			checkFunc: func(t *testing.T) {
 				cfg := config.Get()
 				want := "json:\"-\",lostfield:\"ignore\""
-				if cfg.IgnoreFieldTags != want {
+				if strings.Join(cfg.IgnoreFieldTags, ",") != want {
 					t.Errorf("IgnoreFieldTags: got %q, want %q", cfg.IgnoreFieldTags, want)
 				}
 			},
@@ -146,11 +160,14 @@ func TestConfigGet(t *testing.T) {
 	// Get should return the current configuration
 	cfg := config.Get()
 
-	// Verify it's a valid Config struct
-	_ = cfg.IncludeMethods
+	// Verify it's a valid Config struct with all fields accessible
+	_ = cfg.AllowMethodConverters
 	_ = cfg.AllowGetters
-	_ = cfg.AllowAggregatorsConverters
+	_ = cfg.AllowAggregators
+	_ = cfg.Verbose
+	_ = cfg.IncludeGenerated
+	_ = cfg.IgnoreDeprecated
 	_ = cfg.ExcludeFieldPatterns
-	_ = cfg.MinTypeSimilarity
+	_ = cfg.MinTypeNameSimilarity
 	_ = cfg.IgnoreFieldTags
 }
