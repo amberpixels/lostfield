@@ -45,6 +45,18 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("ExcludeConverterPatterns: got %q, want empty string", cfg.ExcludeConverterPatterns)
 	}
 
+	// Verify ExcludeFilePatterns has expected defaults
+	expectedFilePatterns := []string{"*_test.go", "*.pb.go", "*/vendor/*"}
+	if len(cfg.ExcludeFilePatterns) != len(expectedFilePatterns) {
+		t.Errorf("ExcludeFilePatterns length: got %d, want %d", len(cfg.ExcludeFilePatterns), len(expectedFilePatterns))
+	}
+	for i, pattern := range expectedFilePatterns {
+		if i >= len(cfg.ExcludeFilePatterns) || cfg.ExcludeFilePatterns[i] != pattern {
+			t.Errorf("ExcludeFilePatterns[%d]: got %q, want %q", i, cfg.ExcludeFilePatterns, expectedFilePatterns)
+			break
+		}
+	}
+
 	if cfg.MinTypeNameSimilarity != 0.0 {
 		t.Errorf("MinTypeSimilarity: got %v, want 0.0", cfg.MinTypeNameSimilarity)
 	}
@@ -125,6 +137,18 @@ func TestRegisterFlags(t *testing.T) {
 			},
 		},
 		{
+			name:     "exclude-files flag",
+			flagName: "-exclude-files",
+			value:    "*_test.go,*.pb.go",
+			checkFunc: func(t *testing.T) {
+				cfg := config.Get()
+				want := "*_test.go,*.pb.go"
+				if strings.Join(cfg.ExcludeFilePatterns, ",") != want {
+					t.Errorf("ExcludeFilePatterns: got %q, want %q", cfg.ExcludeFilePatterns, want)
+				}
+			},
+		},
+		{
 			name:     "min-similarity flag",
 			flagName: "-min-similarity",
 			value:    "0.8",
@@ -185,6 +209,7 @@ func TestConfigGet(t *testing.T) {
 	_ = cfg.IgnoreDeprecated
 	_ = cfg.ExcludeFieldPatterns
 	_ = cfg.ExcludeConverterPatterns
+	_ = cfg.ExcludeFilePatterns
 	_ = cfg.MinTypeNameSimilarity
 	_ = cfg.IgnoreFieldTags
 }

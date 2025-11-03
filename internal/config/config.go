@@ -36,6 +36,13 @@ type Config struct {
 	// Default: []
 	ExcludeConverterPatterns []string
 
+	// ExcludeFilePatterns is a comma-separated list of glob patterns for file paths to exclude from analysis.
+	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
+	// Patterns are matched against the full file path.
+	// Examples: "*_test.go", "*.pb.go", "*/vendor/*"
+	// Default: ["*_test.go", "*.pb.go", "*/vendor/*"]
+	ExcludeFilePatterns []string
+
 	// MinTypeNameSimilarity is the minimum type name similarity ratio (0.0-1.0, 0=substring matching)
 	MinTypeNameSimilarity float64
 
@@ -68,6 +75,7 @@ func DefaultConfig() Config {
 		AllowAggregators:         true,
 		ExcludeFieldPatterns:     []string{},
 		ExcludeConverterPatterns: []string{},
+		ExcludeFilePatterns:      []string{"*_test.go", "*.pb.go", "*/vendor/*"},
 		MinTypeNameSimilarity:    0.0, // 0 = use strict substring matching.
 		IgnoreFieldTags:          []string{},
 		IncludeGenerated:         false,
@@ -119,6 +127,15 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"comma-separated glob patterns for function/method names to exclude from converter detection (e.g., 'Get*,Map*,to*')",
 		func(s string) error {
 			current.ExcludeConverterPatterns = splitCommaSeparated(s)
+			return nil
+		},
+	)
+
+	fs.Func(
+		"exclude-files",
+		"comma-separated glob patterns for file paths to exclude from analysis (e.g., '*_test.go,*.pb.go,*/vendor/*')",
+		func(s string) error {
+			current.ExcludeFilePatterns = splitCommaSeparated(s)
 			return nil
 		},
 	)
