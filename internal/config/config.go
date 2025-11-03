@@ -65,6 +65,11 @@ type Config struct {
 
 	// Verbose enables verbose output.
 	Verbose bool
+
+	// Format specifies the output format for diagnostics.
+	// Supported values: "default" (standard go vet format), "custom" (Rust-like pretty format).
+	// Default: "default"
+	Format string
 }
 
 // DefaultConfig returns the default configuration.
@@ -80,8 +85,8 @@ func DefaultConfig() Config {
 		IgnoreFieldTags:          []string{},
 		IncludeGenerated:         false,
 		IgnoreDeprecated:         false,
-
-		Verbose: false, // Quiet output by default
+		Verbose:                  false,     // Quiet output by default
+		Format:                   "default", // Use standard go vet format by default
 	}
 }
 
@@ -157,4 +162,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.BoolVar(&current.IgnoreDeprecated, "include-deprecated", current.IgnoreDeprecated,
 		"include deprecated fields in validation (default: exclude)")
+
+	fs.StringVar(&current.Format, "format", current.Format,
+		"output format for diagnostics (default: standard go vet format, custom: Rust-like pretty format)")
 }

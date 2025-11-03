@@ -56,6 +56,7 @@ See [.golangci.example.yml](.golangci.example.yml) for detailed configuration op
 | `-exclude-fields` | string | `""` | Comma-separated regex patterns for field names to ignore |
 | `-min-similarity` | float64 | `0.0` | Type name similarity threshold (0.0-1.0, 0=substring matching) |
 | `-ignore-tags` | string | `""` | Comma-separated struct tags that mark fields to ignore |
+| `-format` | string | `default` | Output format: `default` (standard go vet), `pretty` (Rust-like with colors) |
 
 ### Examples
 
@@ -69,9 +70,14 @@ lostfield -include-methods=true ./...
 # Ignore timestamp fields
 lostfield -exclude-fields="CreatedAt,UpdatedAt,DeletedAt" ./...
 
+# Use pretty (Rust-like) output format with colors
+lostfield -format=pretty ./...
+
 # Strict mode: no getters, check methods
 lostfield -include-methods=true -allow-getters=false ./...
 ```
+
+**Note:** The `-format` flag works with `go vet` directly. When using with **golangci-lint**, the output format is controlled by golangci-lint's `-out-format` flag (json, tab, checkstyle, etc.), and the linter will use the `default` format automatically.
 
 ## Example
 
@@ -104,7 +110,13 @@ func ConvertUserToDTO(user User) UserDTO {
 }
 ```
 
-Output:
+**Output (default format):**
+
+```
+converters/readmeExample/converter.go:3:6: ConvertUserToDTO: incomplete converter with missing fields: user.Email, user.CreatedAt, Email
+```
+
+**Output (pretty format with `-format=pretty`):**
 
 ```
    |

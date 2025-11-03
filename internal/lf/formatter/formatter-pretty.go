@@ -1,10 +1,10 @@
-package lf
+package formatter
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"go/ast"
-	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -13,13 +13,81 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// PrettyPrint writes a linter message in a Rust-like style to the given writer.
+// prettyFormatter implements a Rust-like pretty diagnostic format.
+// It is completely independent and creates its own detailed message from raw validation data.
+type prettyFormatter struct{}
+
+// Format produces a Rust-like pretty diagnostic message with colors and formatting.
+// It independently formats the message from the raw validation data.
+func (c *prettyFormatter) Format(ctx *FormatContext) string {
+	// Create the detailed field mapping message from raw validation data
+	message := c.formatValidationMessage(ctx.Validation)
+
+	var buf bytes.Buffer
+	c.prettyPrint(&buf, ctx.Filename, ctx.Fn, ctx.Pass, message, ctx.Validation.ConverterType)
+	return buf.String()
+}
+
+// formatValidationMessage creates a detailed field mapping message from raw validation data.
+// This is the core message that the pretty printer will display.
+func (c *prettyFormatter) formatValidationMessage(validation *ConverterValidationResult) string {
+	var buf strings.Builder
+	buf.WriteString("= note: missing fields:\n")
+
+	if len(validation.MissingInputFields) == 0 && len(validation.MissingOutputFields) == 0 {
+		return buf.String()
+	}
+
+	// Simplification: if no input fields are missing but many output fields are, just say "all output fields"
+	if len(validation.MissingInputFields) == 0 && len(validation.MissingOutputFields) > 5 {
+		buf.WriteString("  ??  → all output fields")
+		return buf.String()
+	}
+
+	// Similarly, if no output fields are missing but many input fields are, say "all input fields"
+	if len(validation.MissingOutputFields) == 0 && len(validation.MissingInputFields) > 5 {
+		buf.WriteString("  all input fields → ??")
+		return buf.String()
+	}
+
+	// Calculate the maximum length for alignment of the arrow
+	maxLen := 0
+	for _, field := range validation.MissingInputFields {
+		if len(field) > maxLen {
+			maxLen = len(field)
+		}
+	}
+	for _, field := range validation.MissingOutputFields {
+		if len(field) > maxLen {
+			maxLen = len(field)
+		}
+	}
+	// Account for the leading space and ensure minimum width
+	if maxLen < 1 {
+		maxLen = 1
+	}
+
+	// Add input fields (missing in output mapping)
+	for _, field := range validation.MissingInputFields {
+		padding := strings.Repeat(" ", maxLen-len(field)+1)
+		buf.WriteString("\n  " + field + padding + "→ ??")
+	}
+
+	// Add output fields (missing in input mapping)
+	for _, field := range validation.MissingOutputFields {
+		padding := strings.Repeat(" ", maxLen-len("??")+1)
+		buf.WriteString("\n  " + "??" + padding + "→ " + field)
+	}
+
+	return buf.String()
+}
+
+// prettyPrint writes a linter message in a Rust-like style to the given writer.
 // It extracts the source line from the file (using filename and pos.Line), shortens it to a maximum
-// width (80 characters) while preserving the significant ranges, adjusts the caret position, and prints
+// width (120 characters) while preserving the significant ranges, adjusts the caret position, and prints
 // the formatted diagnostic.
-// TODO: make a struct-base method (so we do not send `pass` via arg, etc)
-func PrettyPrint(
-	w io.Writer,
+func (c *prettyFormatter) prettyPrint(
+	w *bytes.Buffer,
 	filename string,
 	fn *ast.FuncDecl,
 	pass *analysis.Pass,
@@ -95,13 +163,6 @@ func PrettyPrint(
 	_ = bold
 
 	// Print header.
-	// fmt.Fprintf(w, "\033]8;;file://%s:%d:%d\033\\%s\033]8;;\033\\\n",
-	// 	filename, pos.Line, pos.Column,
-	// 	blue(
-	// 		fmt.Sprintf("--> %s:%d:%d", filename, pos.Line, pos.Column),
-	// 	),
-	// )
-
 	fnName := fn.Name.Name
 	fnNameLen := len(fnName)
 
@@ -142,16 +203,15 @@ func PrettyPrint(
 			}
 		}
 	}
-	// fmt.Fprintf(w, "\n%s: aborting due to previous error\n", bold("error"))
 }
 
 // shortenLine shortens a given line to at most maxWidth characters while preserving
-// If any portion is omitted, ellipses ("...") are inserted accordingly.
+// significant ranges. If any portion is omitted, ellipses ("…") are inserted accordingly.
 func shortenLine(line string, maxWidth int) string {
 	if len(line) <= maxWidth {
 		return line
 	}
 
-	// If the significant block is longer than maxWidth, return its first maxWidth characters.
+	// If the line is longer than maxWidth, return its first maxWidth characters.
 	return line[:maxWidth-1] + "…"
 }

@@ -1,7 +1,6 @@
 package lf
 
 import (
-	"bytes"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/amberpixels/lostfield/internal/config"
+	"github.com/amberpixels/lostfield/internal/lf/formatter"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -138,15 +138,25 @@ func Run(pass *analysis.Pass) (any, error) {
 					return true
 				}
 
-				message := formatConverterValidationMessage(validationResult)
-
-				var buf bytes.Buffer
-				PrettyPrint(&buf, filename, fn, pass, message, string(validationResult.ConverterType))
+				// Format the diagnostic message using the configured formatter.
+				// Convert the local validation result to the formatter package's type.
+				fmt := formatter.New(config.Get().Format)
+				formattedMessage := fmt.Format(&formatter.FormatContext{
+					Filename: filename,
+					Fn:       fn,
+					Pass:     pass,
+					Validation: &formatter.ConverterValidationResult{
+						Valid:               validationResult.Valid,
+						ConverterType:       string(validationResult.ConverterType),
+						MissingInputFields:  validationResult.MissingInputFields,
+						MissingOutputFields: validationResult.MissingOutputFields,
+					},
+				})
 
 				// Now report the diagnostic using pass.Report.
 				pass.Report(analysis.Diagnostic{
 					Pos:     fn.Name.Pos(),
-					Message: buf.String(),
+					Message: formattedMessage,
 				})
 
 				warningsTotal++
@@ -176,63 +186,6 @@ func Run(pass *analysis.Pass) (any, error) {
 	}
 
 	return nil, nil //nolint: nilnil // fix later
-}
-
-// formatConverterValidationMessage creates a human-readable format with missing field details.
-func formatConverterValidationMessage(result *ConverterValidationResult) string {
-	var buf strings.Builder
-	buf.WriteString("= note: missing fields:\n")
-
-	if len(result.MissingInputFields) == 0 && len(result.MissingOutputFields) == 0 {
-		return buf.String()
-	}
-
-	// Use consistent indentation for the table (aligned with 'func' keyword position).
-
-	// Simplification: if no input fields are missing but many output fields are, just say "all output fields"
-	// This makes the output more readable when there are dozens of missing output fields
-	if len(result.MissingInputFields) == 0 && len(result.MissingOutputFields) > 5 {
-		buf.WriteString("  ??  → all output fields")
-		return buf.String()
-	}
-
-	// Similarly, if no output fields are missing but many input fields are, say "all input fields"
-	if len(result.MissingOutputFields) == 0 && len(result.MissingInputFields) > 5 {
-		buf.WriteString("  all input fields → ??")
-		return buf.String()
-	}
-
-	// Calculate the maximum length for alignment of the arrow
-	// We need to find the longest field name to align all arrows
-	maxLen := 0
-	for _, field := range result.MissingInputFields {
-		if len(field) > maxLen {
-			maxLen = len(field)
-		}
-	}
-	for _, field := range result.MissingOutputFields {
-		if len(field) > maxLen {
-			maxLen = len(field)
-		}
-	}
-	// Account for the leading space and ensure minimum width
-	if maxLen < 1 {
-		maxLen = 1
-	}
-
-	// Add input fields (missing in output mapping)
-	for _, field := range result.MissingInputFields {
-		padding := strings.Repeat(" ", maxLen-len(field)+1)
-		buf.WriteString("\n  " + field + padding + "→ ??")
-	}
-
-	// Add output fields (missing in input mapping)
-	for _, field := range result.MissingOutputFields {
-		padding := strings.Repeat(" ", maxLen-len("??")+1)
-		buf.WriteString("\n  " + "??" + padding + "→ " + field)
-	}
-
-	return buf.String()
 }
 
 // ContainerType represents the "container" kind for a candidate type.
