@@ -301,6 +301,14 @@ func extractCandidateType(t types.Type) (candidate, bool) {
 	return cand, true
 }
 
+// isConstructor checks if a function is a constructor.
+// A constructor is a function that:
+//   - Starts with "New"
+//   - Returns a struct or pointer to struct
+func isConstructor(fn *ast.FuncDecl) bool {
+	return strings.HasPrefix(fn.Name.Name, "New")
+}
+
 // IsPossibleConverter checks whether fn (a function declaration)
 // qualifies as a potential converter function based on these rules:
 //   - At least one input and one output candidate exist.
@@ -308,9 +316,16 @@ func extractCandidateType(t types.Type) (candidate, bool) {
 //   - For at least one candidate pair (input, output) with the same container type,
 //     the names of the candidate types share a common substring (ignoring case).
 //
+// Constructors (functions starting with "New") are excluded.
+//
 // TODO: it can't be the same type e.g. HandleRewrites(sectionRewrites) (string, SectionRewrite, erro)
 func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	cfg := config.Get()
+
+	// Exclude constructors (functions starting with "New")
+	if isConstructor(fn) {
+		return false
+	}
 
 	// Check if the function name matches any exclusion patterns
 	if len(cfg.ExcludeConverterPatterns) > 0 && MatchesAnyPattern(fn.Name.Name, cfg.ExcludeConverterPatterns) {

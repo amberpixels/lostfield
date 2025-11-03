@@ -86,3 +86,23 @@ func WithContextAndError(user User) (UserDTO, error) {
 	// which is a common pattern for non-converter functions
 	return ConvertUserToDTO(user), nil
 }
+
+// NewDecorator is a constructor, not a converter
+// Even though DecoratorConfig and Decorator have similar names,
+// this should be excluded because it starts with "New"
+func NewDecorator(cfg DecoratorConfig) *Decorator {
+	return &Decorator{
+		Value: cfg.Setting,
+	}
+}
+
+// NewUserDTO is a constructor that creates a UserDTO
+// Should be excluded even though User and UserDTO are similar
+func NewUserDTO(user User) UserDTO {
+	return UserDTO{
+		ID:       user.ID,
+		Username: user.Username,
+		Email:    user.Email,
+		FullName: user.FirstName + " " + user.LastName,
+	}
+}

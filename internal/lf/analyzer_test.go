@@ -237,6 +237,16 @@ func TestIsPossibleConverter(t *testing.T) {
 
 		// Negative cases - should NOT be detected as converters
 		{
+			name:     "constructor with New prefix",
+			funcName: "NewDecorator",
+			want:     false,
+		},
+		{
+			name:     "constructor with New prefix and similar names",
+			funcName: "NewUserDTO",
+			want:     false,
+		},
+		{
 			name:     "no parameters",
 			funcName: "NoParams",
 			want:     false,

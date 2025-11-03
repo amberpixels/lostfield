@@ -58,3 +58,13 @@ type UnrelatedType struct {
 type CompletelyDifferent struct {
 	Field string
 }
+
+// Decorator represents a decorator with config
+type Decorator struct {
+	Value string
+}
+
+// DecoratorConfig represents configuration for Decorator
+type DecoratorConfig struct {
+	Setting string
+}
