@@ -120,7 +120,7 @@ func PrettyPrint(
 	if converterType != "" {
 		typeLabel = " detected as " + converterType
 	}
-	fmt.Fprintf(w, "%*s %s %s%s\n", gutterWidth, "", blue("|"), caretLine, yellow(typeLabel))
+	fmt.Fprintf(w, "%*s %s  %s%s\n", gutterWidth, "", blue("|"), caretLine, yellow(typeLabel))
 
 	// Add blank line with just the pipe
 	fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", blue("|"))
