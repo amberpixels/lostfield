@@ -13,7 +13,7 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-func TestC1(t *testing.T) {
+func TestBasic(t *testing.T) {
 	testdata := analysistest.TestData()
 
 	analyzer := &analysis.Analyzer{
@@ -22,7 +22,7 @@ func TestC1(t *testing.T) {
 		Run:  lf.Run,
 	}
 
-	analysistest.Run(t, testdata, analyzer, "converters/c1")
+	analysistest.Run(t, testdata, analyzer, "converters/basic")
 }
 
 func TestDelegatingConverters(t *testing.T) {
@@ -234,6 +234,11 @@ func TestIsPossibleConverter(t *testing.T) {
 			funcName: "BuildUserDTOFromUser",
 			want:     true,
 		},
+		{
+			name:     "embedded struct conversion (manually setting all embedded fields)",
+			funcName: "FromDomain",
+			want:     true,
+		},
 
 		// Negative cases - should NOT be detected as converters
 		{
@@ -317,6 +322,11 @@ func TestIsPossibleConverter(t *testing.T) {
 			name:     "converter with error return (common pattern)",
 			funcName: "WithContextAndError",
 			want:     true, // Should be detected despite error return
+		},
+		{
+			name:     "embedded struct with missing fields (still detected as possible converter)",
+			funcName: "FromDomainIncomplete",
+			want:     true, // Detected as possible converter, but validation will fail
 		},
 	}
 

@@ -1,4 +1,4 @@
-package model
+package domain
 
 type Sample struct {
 	ID       string

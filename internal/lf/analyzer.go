@@ -507,6 +507,7 @@ func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
 }
 
 // collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
+// It handles both direct fields and fields from embedded structs.
 func collectMissingFields(
 	st *types.Struct,
 	usedFields UsageLookup,
@@ -528,7 +529,19 @@ func collectMissingFields(
 			continue
 		}
 
-		if !usedFields.LookUp(field.Name()) {
+		// Check if field is used directly
+		fieldUsed := usedFields.LookUp(field.Name())
+
+		// For embedded structs, also check if the leaf fields are used through embedding
+		// E.g., if DbApple has embedded GormModel with field ID, and we do dbapple.ID = value,
+		// we should consider GormModel.ID as "used"
+		if !fieldUsed && field.Embedded() {
+			if embeddedStruct, ok := field.Type().Underlying().(*types.Struct); ok {
+				fieldUsed = areEmbeddedFieldsUsed(embeddedStruct, usedFields)
+			}
+		}
+
+		if !fieldUsed {
 			// if methods were given, let's allow via getters (if config allows)
 			// If a getter method exists (for input candidate) then allow it.
 			if cfg.AllowGetters && len(usedMethodsArg) > 0 && usedMethodsArg[0].LookUp("Get"+field.Name()) {
@@ -538,6 +551,40 @@ func collectMissingFields(
 		}
 	}
 	return missing
+}
+
+// areEmbeddedFieldsUsed checks if all exported fields of an embedded struct are used.
+// Returns true ONLY if all exported fields of the embedded struct are found in usedFields.
+// This handles cases like: type DbApple { GormModel; ... } with dbapple.ID = value (where ID comes from GormModel).
+//
+// This function is strict: if you embed a struct, you must initialize ALL its exported fields,
+// either explicitly in a composite literal or by direct assignment.
+func areEmbeddedFieldsUsed(embeddedStruct *types.Struct, usedFields UsageLookup) bool {
+	// Collect all exported fields from the embedded struct
+	exportedFieldCount := 0
+	usedEmbeddedCount := 0
+
+	for i := 0; i < embeddedStruct.NumFields(); i++ {
+		field := embeddedStruct.Field(i)
+		if !field.Exported() {
+			continue
+		}
+		exportedFieldCount++
+
+		// Check if this field is in usedFields (it would be accessed as parent.fieldName due to embedding)
+		if usedFields.LookUp(field.Name()) {
+			usedEmbeddedCount++
+		}
+	}
+
+	// If there are no exported fields, consider it "used"
+	if exportedFieldCount == 0 {
+		return true
+	}
+
+	// Consider the embedded struct "used" ONLY if ALL its exported fields are used/set
+	// This ensures complete initialization of embedded structs
+	return usedEmbeddedCount == exportedFieldCount
 }
 
 // ConverterType indicates the type of converter function.

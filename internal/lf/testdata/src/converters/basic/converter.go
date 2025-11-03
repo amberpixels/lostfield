@@ -1,11 +1,11 @@
 package c1
 
 import (
-	"converters/dbmodel"
-	"converters/model"
+	"converters/basic/models/dbmodel"
+	"converters/basic/models/domain"
 )
 
-func ConvertSampleToDB(sample model.Sample) (result *dbmodel.Sample) {
+func ConvertSampleToDB(sample domain.Sample) (result *dbmodel.Sample) {
 	_ = sample.Label
 	_ = sample.ID
 

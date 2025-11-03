@@ -106,3 +106,15 @@ func NewUserDTO(user User) UserDTO {
 		FullName: user.FirstName + " " + user.LastName,
 	}
 }
+
+// FromDomainIncomplete converts Apple to DbApple but does NOT set all fields from embedded GormModel
+// This should FAIL validation because DeletedAt from GormModel is not set
+func FromDomainIncomplete(a Apple) DbApple {
+	dbapple := DbApple{}
+	dbapple.ID = a.ID
+	dbapple.CreatedAt = 1234567890
+	// Missing: UpdatedAt
+	dbapple.Kind = a.Kind
+	dbapple.Color = a.Color
+	return dbapple
+}

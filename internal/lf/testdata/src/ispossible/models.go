@@ -68,3 +68,24 @@ type Decorator struct {
 type DecoratorConfig struct {
 	Setting string
 }
+
+// GormModel represents a GORM model with base fields (similar to real gorm.Model)
+type GormModel struct {
+	ID        int64
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+// DbApple represents a database model with embedded GormModel
+type DbApple struct {
+	GormModel
+	Kind  string
+	Color string
+}
+
+// Apple represents a domain model
+type Apple struct {
+	ID    int64
+	Kind  string
+	Color string
+}

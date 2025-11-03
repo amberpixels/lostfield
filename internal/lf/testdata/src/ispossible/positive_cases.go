@@ -107,3 +107,17 @@ func BuildUserDTOFromUser(u User) UserDTO {
 		Username: u.Username,
 	}
 }
+
+// FromDomain converts domain Apple to database model DbApple with embedded GormModel
+// This tests handling of embedded structs - fields from GormModel (ID, CreatedAt, UpdatedAt)
+// are accessed directly on dbapple and should be recognized as part of the embedding.
+// This matches the real-world pattern where you manually set each field of embedded struct.
+func FromDomain(a Apple) DbApple {
+	dbapple := DbApple{}
+	dbapple.ID = a.ID
+	dbapple.CreatedAt = 1234567890
+	dbapple.UpdatedAt = 1234567890
+	dbapple.Kind = a.Kind
+	dbapple.Color = a.Color
+	return dbapple
+}
