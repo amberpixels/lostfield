@@ -10,126 +10,145 @@ import (
 
 	"github.com/amberpixels/lostfield/internal/lf"
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/analysistest"
 )
 
+func TestReadmeExample(t *testing.T) {
+	runAnalysisTest(t, "converters/1-readme-example",
+		DiagnosticAssertion{
+			FunctionName: "ConvertUserToDTO",
+			FieldsMissing: []string{
+				"user.Email",
+				"user.CreatedAt",
+				"Email",
+			},
+		},
+	)
+}
+
 func TestBasic(t *testing.T) {
-	testdata := analysistest.TestData()
+	t.Run("2-basic:clean", func(t *testing.T) {
+		// Valid converter that uses all fields correctly
+		runAnalysisTest(t, "converters/2-basic/clean")
+	})
 
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	analysistest.Run(t, testdata, analyzer, "converters/basic")
+	t.Run("2-basic:dirty", func(t *testing.T) {
+		// Various incomplete converters
+		runAnalysisTest(t, "converters/2-basic/dirty",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertSampleToDB_MissingPrice",
+				FieldsMissing: []string{"sample.Price", "result.Price"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertSampleToDB_MissingCurrency",
+				FieldsMissing: []string{"sample.Currency", "result.Currency"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertSampleToDB_MissingBoth",
+				FieldsMissing: []string{"sample.Price", "sample.Currency", "result.Price", "result.Currency"},
+			},
+		)
+	})
 }
 
 func TestDelegatingConverters(t *testing.T) {
-	testdata := analysistest.TestData()
+	t.Run("3-delegate:clean", func(t *testing.T) {
+		// Valid delegating converters are skipped from validation
+		runAnalysisTest(t, "converters/3-delegate/clean")
+	})
 
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that delegating converters (converters that call other converters)
-	// are correctly identified and skipped from validation
-	analysistest.Run(t, testdata, analyzer, "converters/delegate")
+	t.Run("3-delegate:dirty", func(t *testing.T) {
+		// Delegating to incomplete converter
+		runAnalysisTest(t, "converters/3-delegate/dirty",
+			DiagnosticAssertion{
+				FunctionName: "ConvertTicketModelToProto_Incomplete",
+				FieldsMissing: []string{
+					"t.TicketsCount",
+					"t.Display",
+					"t.ServiceInfo",
+					"t.IsLeavingSingleSeats",
+					"t.IsOwnTickets",
+					"t.SeatsWarnings",
+					"t.RewriteDetails",
+					"IsOwnTickets",
+					"TicketsCount",
+					"IsLeavingSingleSeats",
+					"ServiceInfo",
+					"SeatsWarnings",
+					"RewriteDetails",
+					"Display",
+				},
+			},
+		)
+	})
 }
 
 func TestSameTypeFunctions(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that functions with the same input and output type
-	// (e.g., applyFilters(*DB) *DB) are NOT flagged as converters
-	analysistest.Run(t, testdata, analyzer, "converters/sameType")
+	// Functions with same input and output type are NOT flagged as converters
+	runAnalysisTest(t, "converters/4-same-type")
 }
 
 func TestBlankIdentifierFields(t *testing.T) {
-	testdata := analysistest.TestData()
+	t.Run("5-blank-ident:clean", func(t *testing.T) {
+		// Blank identifier fields are correctly recognized as being used/acknowledged
+		runAnalysisTest(t, "converters/5-blank-ident/clean")
+	})
 
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that fields marked with blank identifier (_ = model.Field)
-	// are correctly recognized as being used/acknowledged
-	analysistest.Run(t, testdata, analyzer, "converters/blankIdent")
+	t.Run("5-blank-ident:dirty", func(t *testing.T) {
+		// Without blank ident, field is reported as missing
+		runAnalysisTest(t, "converters/5-blank-ident/dirty",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertPerformanceMapSchemeModelToProto_WithoutBlankIdent",
+				FieldsMissing: []string{"model.VenueConfiguration"},
+			},
+		)
+	})
 }
 
 func TestDifferentPackagesSameName(t *testing.T) {
-	testdata := analysistest.TestData()
+	t.Run("6-different-packages:clean", func(t *testing.T) {
+		// Valid converters with same-named types from different packages
+		runAnalysisTest(t, "converters/6-different-packages/clean")
+	})
 
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that converters with same-named types from different packages
-	// (e.g., models.MatchedMapData -> pbVenueConfig.MatchedMapData) are correctly
-	// identified as converters and not excluded by the same-type check
-	analysistest.Run(t, testdata, analyzer, "converters/differentPackages")
+	t.Run("6-different-packages:dirty", func(t *testing.T) {
+		// Incomplete converters with missing fields
+		runAnalysisTest(t, "converters/6-different-packages/dirty",
+			DiagnosticAssertion{
+				FunctionName:  "MatchedCategoryToProto_Incomplete",
+				FieldsMissing: []string{"category.Name", "Name"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "MatchingDetailsToProto_Incomplete",
+				FieldsMissing: []string{"details.Info", "Info"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "MatchedMapDataToProto_Incomplete",
+				FieldsMissing: []string{"data.Details", "Details"},
+			},
+		)
+	})
 }
 
 func TestChainedReturnMethod(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that converters returning (&Type{fields...}).MethodCall()
-	// correctly detect field usage in the composite literal
-	analysistest.Run(t, testdata, analyzer, "converters/chainedReturn")
+	// Valid converters with chained return methods
+	runAnalysisTest(t, "converters/7-chained-return/clean")
 }
 
 func TestSliceToNonSlice(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that slice->non-slice conversions are NOT caught as converters
-	// These are utility functions, not proper converters
-	analysistest.Run(t, testdata, analyzer, "converters/sliceToNonSlice")
+	// Slice->non-slice conversions are NOT caught as converters (they're utility functions)
+	// Expect 0 diagnostics
+	runAnalysisTest(t, "converters/8-slice-to-non-slice")
 }
 
 func TestAggregatingConvertersEnabled(t *testing.T) {
-	testdata := analysistest.TestData()
+	// Aggregating converters (slice -> non-slice with valid field mapping)
+	// With proper field mapping, should pass validation. Expect 0 diagnostics
+	runAnalysisTest(t, "converters/8-slice-to-non-slice")
+}
 
-	// Create analyzer with aggregating converters enabled
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test verifies that aggregating converters (slice -> non-slice)
-	// are detected and validated when the feature is enabled.
-	// Since we can't easily control config from here, and the test is designed
-	// to work without the flag, we'll document the expected behavior:
-	// With --allow-aggregators=true, the sliceToNonSlice converter would be caught
-	// and validated because:
-	// - Input: []*VenueDetail (has Name, Sections fields)
-	// - Output: Metadata with Categories []Category (Category has Name, Sections)
-	// - All fields are properly mapped, so it should pass validation
-	analysistest.Run(t, testdata, analyzer, "converters/sliceToNonSlice")
+func TestDeprecatedFields(t *testing.T) {
+	// Converter handles all fields including the deprecated OldName field
+	runAnalysisTest(t, "converters/9-deprecated/clean")
 }
 
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
@@ -355,357 +374,6 @@ func TestIsPossibleConverter(t *testing.T) {
 			got := lf.IsPossibleConverter(funcDecl, pass)
 			if got != tt.want {
 				t.Errorf("IsPossibleConverter(%q) = %v, want %v", tt.funcName, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestDeprecatedFields(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test ensures that deprecated fields are handled correctly by the analyzer.
-	// The test converter handles all fields including the deprecated OldName field.
-	// This tests that:
-	// - Deprecated fields CAN be used and converted if desired
-	// - The analyzer correctly detects the "Deprecated:" comment in field definitions
-	// - isDeprecatedField() works properly for fields marked with deprecation comments
-	analysistest.Run(t, testdata, analyzer, "converters/deprecated")
-}
-
-func TestReadmeExample(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
-	// This test validates the example shown in readme.md
-	analysistest.Run(t, testdata, analyzer, "converters/readmeExample")
-}
-
-// TestMatchesAnyPattern tests the glob pattern matching logic.
-func TestMatchesAnyPattern(t *testing.T) {
-	tests := []struct {
-		name     string
-		funcName string
-		patterns []string
-		want     bool
-	}{
-		{
-			name:     "matches Get* pattern",
-			funcName: "GetUser",
-			patterns: []string{"Get*"},
-			want:     true,
-		},
-		{
-			name:     "matches Map* pattern",
-			funcName: "MapResponse",
-			patterns: []string{"Map*"},
-			want:     true,
-		},
-		{
-			name:     "matches to* pattern",
-			funcName: "toDTO",
-			patterns: []string{"to*"},
-			want:     true,
-		},
-		{
-			name:     "matches *Helper pattern",
-			funcName: "ConvertHelper",
-			patterns: []string{"*Helper"},
-			want:     true,
-		},
-		{
-			name:     "matches one of multiple patterns",
-			funcName: "MapUser",
-			patterns: []string{"Get*", "Map*", "to*"},
-			want:     true,
-		},
-		{
-			name:     "does not match any pattern",
-			funcName: "ConvertUser",
-			patterns: []string{"Get*", "Map*", "to*"},
-			want:     false,
-		},
-		{
-			name:     "empty patterns list",
-			funcName: "GetUser",
-			patterns: []string{},
-			want:     false,
-		},
-		{
-			name:     "exact match pattern",
-			funcName: "GetUser",
-			patterns: []string{"GetUser"},
-			want:     true,
-		},
-		{
-			name:     "single char wildcard ?",
-			funcName: "GetA",
-			patterns: []string{"Get?"},
-			want:     true,
-		},
-		{
-			name:     "single char wildcard does not match multiple",
-			funcName: "GetAB",
-			patterns: []string{"Get?"},
-			want:     false,
-		},
-		{
-			name:     "middle wildcard",
-			funcName: "ConvertUserToDTO",
-			patterns: []string{"Convert*ToDTO"},
-			want:     true,
-		},
-		{
-			name:     "case sensitive matching",
-			funcName: "getUser",
-			patterns: []string{"Get*"},
-			want:     false,
-		},
-		// File path pattern tests
-		{
-			name:     "matches full path with *_test.go pattern",
-			funcName: "/Users/e/code/github.com/ht/ht-mercator/internal/domain/svgmap/tixstockmaps/parser_test.go",
-			patterns: []string{"*_test.go"},
-			want:     true,
-		},
-		{
-			name:     "matches full path with *.pb.go pattern",
-			funcName: "/path/to/proto/generated/file.pb.go",
-			patterns: []string{"*.pb.go"},
-			want:     true,
-		},
-		{
-			name:     "matches full path with */vendor/* pattern",
-			funcName: "/path/to/project/vendor/github.com/foo/bar.go",
-			patterns: []string{"*/vendor/*"},
-			want:     true,
-		},
-		{
-			name:     "does not match non-test file with *_test.go pattern",
-			funcName: "/path/to/project/internal/file.go",
-			patterns: []string{"*_test.go"},
-			want:     false,
-		},
-		{
-			name:     "matches with mixed path and basename patterns",
-			funcName: "/path/to/vendor/module/file_test.go",
-			patterns: []string{"*_test.go", "*/vendor/*"},
-			want:     true,
-		},
-		// Edge cases
-		{
-			name:     "empty string does not match any pattern",
-			funcName: "",
-			patterns: []string{"*"},
-			want:     false,
-		},
-		{
-			name:     "pattern with only * matches any basename",
-			funcName: "anything.go",
-			patterns: []string{"*"},
-			want:     true,
-		},
-		{
-			name:     "exact filename match without wildcard",
-			funcName: "/path/to/exact.go",
-			patterns: []string{"exact.go"},
-			want:     true,
-		},
-		{
-			name:     "exact filename no match without wildcard",
-			funcName: "/path/to/other.go",
-			patterns: []string{"exact.go"},
-			want:     false,
-		},
-		// Multiple directory levels in path pattern
-		{
-			name:     "matches nested vendor directory",
-			funcName: "/project/src/vendor/github.com/pkg/file.go",
-			patterns: []string{"*/vendor/*"},
-			want:     true,
-		},
-		{
-			name:     "does not match vendor in filename only",
-			funcName: "/project/src/vendorfile.go",
-			patterns: []string{"*/vendor/*"},
-			want:     false,
-		},
-		{
-			name:     "matches vendor at any depth",
-			funcName: "/a/b/c/vendor/d/e/f/file.go",
-			patterns: []string{"*/vendor/*"},
-			want:     true,
-		},
-		// Proto file variations
-		{
-			name:     "matches .pb.go in deep path",
-			funcName: "/project/internal/proto/generated/service.pb.go",
-			patterns: []string{"*.pb.go"},
-			want:     true,
-		},
-		{
-			name:     "does not match .pb in middle of filename",
-			funcName: "/project/file.pb.old.go",
-			patterns: []string{"*.pb.go"},
-			want:     false,
-		},
-		// Test file variations
-		{
-			name:     "matches test file without package",
-			funcName: "simple_test.go",
-			patterns: []string{"*_test.go"},
-			want:     true,
-		},
-		{
-			name:     "matches test file with long name",
-			funcName: "/path/to/very_long_descriptive_converter_test.go",
-			patterns: []string{"*_test.go"},
-			want:     true,
-		},
-		{
-			name:     "does not match test in middle of filename",
-			funcName: "/path/to/test_file.go",
-			patterns: []string{"*_test.go"},
-			want:     false,
-		},
-		// Multiple wildcards
-		{
-			name:     "matches multiple wildcards in filename pattern",
-			funcName: "convert_user_to_dto.go",
-			patterns: []string{"convert_*_to_*.go"},
-			want:     true,
-		},
-		{
-			name:     "does not match multiple wildcards with wrong structure",
-			funcName: "convert_user_dto.go",
-			patterns: []string{"convert_*_to_*.go"},
-			want:     false,
-		},
-		// Path pattern variations
-		{
-			name:     "matches */generated/* pattern",
-			funcName: "/project/internal/generated/models/user.go",
-			patterns: []string{"*/generated/*"},
-			want:     true,
-		},
-		{
-			name:     "matches */mocks/* pattern",
-			funcName: "/project/internal/service/mocks/mock_service.go",
-			patterns: []string{"*/mocks/*"},
-			want:     true,
-		},
-		{
-			name:     "does not match similar but different path",
-			funcName: "/project/internal/vendordata/file.go",
-			patterns: []string{"*/vendor/*"},
-			want:     false,
-		},
-		// Real-world scenarios
-		{
-			name:     "matches proto in realistic path structure",
-			funcName: "/home/user/project/api/proto/v1/service.pb.go",
-			patterns: []string{"*.pb.go", "*_test.go", "*/vendor/*"},
-			want:     true,
-		},
-		{
-			name:     "matches test in realistic path structure",
-			funcName: "/home/user/project/internal/domain/converter_test.go",
-			patterns: []string{"*.pb.go", "*_test.go", "*/vendor/*"},
-			want:     true,
-		},
-		{
-			name:     "matches vendor in realistic path structure",
-			funcName: "/home/user/project/vendor/github.com/lib/module.go",
-			patterns: []string{"*.pb.go", "*_test.go", "*/vendor/*"},
-			want:     true,
-		},
-		{
-			name:     "does not match regular file with default exclusions",
-			funcName: "/home/user/project/internal/domain/converter.go",
-			patterns: []string{"*.pb.go", "*_test.go", "*/vendor/*"},
-			want:     false,
-		},
-		// Complex basename patterns
-		{
-			name:     "matches complex basename pattern with prefix and suffix",
-			funcName: "/path/to/mock_service_test.go",
-			patterns: []string{"mock_*.go"},
-			want:     true,
-		},
-		{
-			name:     "matches pattern with question mark",
-			funcName: "/path/file1.go",
-			patterns: []string{"file?.go"},
-			want:     true,
-		},
-		{
-			name:     "does not match question mark with multiple chars",
-			funcName: "/path/file12.go",
-			patterns: []string{"file?.go"},
-			want:     false,
-		},
-		// Extension variations
-		{
-			name:     "matches .proto.go files",
-			funcName: "/path/service.proto.go",
-			patterns: []string{"*.proto.go"},
-			want:     true,
-		},
-		{
-			name:     "matches _generated.go files",
-			funcName: "/path/models_generated.go",
-			patterns: []string{"*_generated.go"},
-			want:     true,
-		},
-		// First pattern wins scenarios
-		{
-			name:     "matches first matching pattern",
-			funcName: "/path/converter_test.go",
-			patterns: []string{"*_test.go", "converter_*"},
-			want:     true,
-		},
-		{
-			name:     "matches second pattern when first doesn't match",
-			funcName: "/path/converter_impl.go",
-			patterns: []string{"*_test.go", "converter_*"},
-			want:     true,
-		},
-		// Single file (no directory)
-		{
-			name:     "matches single file with test pattern",
-			funcName: "main_test.go",
-			patterns: []string{"*_test.go"},
-			want:     true,
-		},
-		{
-			name:     "matches single file with pb pattern",
-			funcName: "service.pb.go",
-			patterns: []string{"*.pb.go"},
-			want:     true,
-		},
-		{
-			name:     "does not match vendor pattern without path",
-			funcName: "vendor.go",
-			patterns: []string{"*/vendor/*"},
-			want:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := lf.MatchesAnyPattern(tt.funcName, tt.patterns)
-			if got != tt.want {
-				t.Errorf("MatchesAnyPattern(%q, %v) = %v, want %v", tt.funcName, tt.patterns, got, tt.want)
 			}
 		})
 	}

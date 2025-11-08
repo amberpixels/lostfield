@@ -1,0 +1,21 @@
+package sample_basic
+
+import (
+	"converters/2-basic/models/dbmodel"
+	"converters/2-basic/models/domain"
+)
+
+func ConvertSampleToDB(sample domain.Sample) (result *dbmodel.Sample) {
+	_ = sample.Label
+	_ = sample.ID
+
+	result = &dbmodel.Sample{
+		Label:    "const label",
+		Currency: sample.Currency,
+	}
+	result.Price = sample.Price
+
+	_ = result.ID
+
+	return
+}
