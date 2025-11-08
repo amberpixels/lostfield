@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/amberpixels/lostfield/internal/lf"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/analysistest"
@@ -115,5 +116,70 @@ func PrintDiagnostics(t *testing.T, diagnostics []*analysis.Diagnostic) {
 	t.Logf("Total diagnostics: %d", len(diagnostics))
 	for i, diag := range diagnostics {
 		t.Logf("  [%d] %s", i, diag.Message)
+	}
+}
+
+// runAnalysisTestWithConfig runs the lostfield analyzer on a test package with a custom config
+// and validates against assertions.
+func runAnalysisTestWithConfig(
+	t *testing.T,
+	pkgPath string,
+	cfg config.Config,
+	assertions ...DiagnosticAssertion,
+) {
+	t.Helper()
+
+	testdata := analysistest.TestData()
+
+	analyzer := &analysis.Analyzer{
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields)",
+		Run: func(pass *analysis.Pass) (any, error) {
+			// Temporarily set the config
+			originalCfg := config.Get()
+			config.SetConfig(cfg) // We'll need to add SetConfig to config package
+			defer func() {
+				config.SetConfig(originalCfg)
+			}()
+
+			return lf.Run(pass)
+		},
+	}
+
+	// analysistest.Run() returns []*Result which has Diagnostics field
+	results := analysistest.Run(t, testdata, analyzer, pkgPath)
+
+	// Collect all diagnostics from all results
+	var diagnostics []*analysis.Diagnostic
+	for _, result := range results {
+		for i := range result.Diagnostics {
+			diagnostics = append(diagnostics, &result.Diagnostics[i])
+		}
+	}
+
+	// Check count matches expectations
+	if len(diagnostics) != len(assertions) {
+		PrintDiagnostics(t, diagnostics)
+		t.Fatalf("expected %d diagnostics, got %d", len(assertions), len(diagnostics))
+	}
+
+	// Check each diagnostic against its assertion
+	for i, assertion := range assertions {
+		msg := diagnostics[i].Message
+
+		// Verify function name is in the message
+		if !strings.Contains(msg, assertion.FunctionName) {
+			t.Errorf("diagnostic %d: message should contain function name %q\n  Full message: %s",
+				i, assertion.FunctionName, msg)
+			continue
+		}
+
+		// Extract and validate fields
+		reportedFields := extractMissingFields(msg)
+
+		if !fieldsMatch(reportedFields, assertion.FieldsMissing) {
+			t.Errorf("diagnostic %d: fields mismatch\n  Expected: %v\n  Got: %v\n  Message: %s",
+				i, assertion.FieldsMissing, reportedFields, msg)
+		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/amberpixels/lostfield/internal/lf"
 	"golang.org/x/tools/go/analysis"
 )
@@ -149,6 +150,23 @@ func TestAggregatingConvertersEnabled(t *testing.T) {
 func TestDeprecatedFields(t *testing.T) {
 	// Converter handles all fields including the deprecated OldName field
 	runAnalysisTest(t, "converters/9-deprecated/clean")
+}
+
+func TestNonMarshallableFields(t *testing.T) {
+	t.Run("ignore mode", func(t *testing.T) {
+		// In ignore mode, non-marshallable fields (func, chan) are completely ignored
+		cfg := config.DefaultConfig()
+		cfg.NonMarshallableFieldsHandling = config.HandleIgnore
+		runAnalysisTestWithConfig(t, "converters/10-non-marshallable-fields/ignore", cfg)
+	})
+
+	t.Run("adaptive mode (default)", func(t *testing.T) {
+		// In adaptive mode, non-marshallable fields are validated only if they exist in both input and output
+		// Since Handler/Notify don't exist in ApiApple/MessageDTO, they're ignored
+		cfg := config.DefaultConfig()
+		cfg.NonMarshallableFieldsHandling = config.HandleAdaptive
+		runAnalysisTestWithConfig(t, "converters/10-non-marshallable-fields/if_present", cfg)
+	})
 }
 
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.

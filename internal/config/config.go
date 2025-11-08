@@ -11,6 +11,26 @@ const (
 	LinterDoc  = "reports all inconsistent converter functions: finds lost fields)"
 )
 
+// NonMarshallableFieldsHandling specifies how to handle non-marshallable field types
+// (functions, channels, etc.) in converter function validation.
+type NonMarshallableFieldsHandling string
+
+const (
+	// HandleIgnore: Skip all non-marshallable fields (func, chan, etc.) entirely.
+	// No validation is performed for these field types in any converter.
+	HandleIgnore NonMarshallableFieldsHandling = "ignore"
+
+	// HandleAdaptive: Validate non-marshallable fields ONLY if they exist in both input AND output models.
+	// Smart & pragmatic: adapts to the actual model structure.
+	// Example: Apple{Callback func()} → ApiApple{} : Callback ignored (missing in output)
+	// Example: Apple{Callback func()} → ApiBridge{Callback func()} : Callback validated (present in both).
+	HandleAdaptive NonMarshallableFieldsHandling = "adaptive"
+
+	// HandleStrict: Treat non-marshallable fields like normal fields - they MUST be handled.
+	// If input has a func or channel field, the converter must read/use it.
+	HandleStrict NonMarshallableFieldsHandling = "strict"
+)
+
 // Config holds all configuration for the analyzer.
 type Config struct {
 	// AllowMethodConverters enables looking for converters in methods in addition to plain functions.
@@ -70,23 +90,43 @@ type Config struct {
 	// Supported values: "default" (standard go vet format), "custom" (Rust-like pretty format).
 	// Default: "default"
 	Format string
+
+	// NonMarshallableFieldsHandling specifies how to handle non-marshallable field types
+	// (functions, channels, etc. - types that cannot be serialized/marshalled).
+	// Examples of non-marshallable fields: func(), chan string, func(error) error
+	//
+	// Behavior:
+	//   - "ignore": Skip non-marshallable fields entirely during validation.
+	//     Example: Input has `Handler func()`, Output doesn't → both are valid (no error)
+	//
+	//   - "adaptive" (default): Validate non-marshallable fields ONLY if present in both input AND output.
+	//     Example Input:  `Apple { ID string, Callback func() }`
+	//     Example Output: `ApiApple { ID string }` (no Callback)
+	//     Result: Callback is ignored (not an error) because it's missing from output
+	//
+	//   - "strict": Treat non-marshallable fields like normal fields - they MUST be handled.
+	//     Example: Input has `Callback func()` → error if not read in converter
+	//
+	// Default: "adaptive"
+	NonMarshallableFieldsHandling NonMarshallableFieldsHandling
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		AllowMethodConverters:    true,
-		AllowGetters:             true,
-		AllowAggregators:         true,
-		ExcludeFieldPatterns:     []string{},
-		ExcludeConverterPatterns: []string{},
-		ExcludeFilePatterns:      []string{"*_test.go", "*.pb.go", "*/vendor/*"},
-		MinTypeNameSimilarity:    0.0, // 0 = use strict substring matching.
-		IgnoreFieldTags:          []string{},
-		IncludeGenerated:         false,
-		IgnoreDeprecated:         false,
-		Verbose:                  false,     // Quiet output by default
-		Format:                   "default", // Use standard go vet format by default
+		AllowMethodConverters:         true,
+		AllowGetters:                  true,
+		AllowAggregators:              true,
+		ExcludeFieldPatterns:          []string{},
+		ExcludeConverterPatterns:      []string{},
+		ExcludeFilePatterns:           []string{"*_test.go", "*.pb.go", "*/vendor/*"},
+		MinTypeNameSimilarity:         0.0, // 0 = use strict substring matching.
+		IgnoreFieldTags:               []string{},
+		IncludeGenerated:              false,
+		IgnoreDeprecated:              false,
+		Verbose:                       false,          // Quiet output by default
+		Format:                        "default",      // Use standard go vet format by default
+		NonMarshallableFieldsHandling: HandleAdaptive, // Adapt to what's present in both input and output models by default
 	}
 }
 
@@ -96,6 +136,11 @@ var current = DefaultConfig()
 // Get returns the current configuration.
 func Get() Config {
 	return current
+}
+
+// SetConfig sets the current configuration (useful for testing).
+func SetConfig(cfg Config) {
+	current = cfg
 }
 
 // splitCommaSeparated splits a comma-separated string into a slice of strings.
@@ -165,4 +210,13 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.StringVar(&current.Format, "format", current.Format,
 		"output format for diagnostics (default: standard go vet format, custom: Rust-like pretty format)")
+
+	fs.Func(
+		"non-marshallable-fields",
+		"how to handle non-marshallable field types (ignore, adaptive, strict)",
+		func(s string) error {
+			current.NonMarshallableFieldsHandling = NonMarshallableFieldsHandling(s)
+			return nil
+		},
+	)
 }

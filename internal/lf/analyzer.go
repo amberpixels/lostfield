@@ -337,6 +337,37 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	return false
 }
 
+// isNonMarshallableType checks if a field type is non-marshallable (function, channel, etc.)
+// Returns true for types that cannot be serialized (func, chan, etc.)
+func isNonMarshallableType(fieldType types.Type) bool {
+	if fieldType == nil {
+		return false
+	}
+
+	switch t := fieldType.(type) {
+	case *types.Signature:
+		// Function types are non-marshallable
+		return true
+	case *types.Chan:
+		// Channel types are non-marshallable
+		return true
+	case *types.Pointer:
+		// Check if pointer points to non-marshallable type
+		return isNonMarshallableType(t.Elem())
+	case *types.Slice:
+		// Check if slice element is non-marshallable (rare but possible)
+		return isNonMarshallableType(t.Elem())
+	case *types.Array:
+		// Check if array element is non-marshallable (rare but possible)
+		return isNonMarshallableType(t.Elem())
+	case *types.Map:
+		// Check if map value is non-marshallable
+		return isNonMarshallableType(t.Elem())
+	}
+
+	return false
+}
+
 // isDeprecatedField checks if a field is marked as deprecated by looking for
 // "Deprecated:" in its documentation comment or by checking for deprecated markers
 // in protobuf-generated code (via tags or field structure hints).
@@ -420,6 +451,7 @@ func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
 
 // collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
 // It handles both direct fields and fields from embedded structs.
+// It also respects the NonMarshallableFieldsHandling configuration.
 func collectMissingFields(
 	st *types.Struct,
 	usedFields UsageLookup,
@@ -439,6 +471,23 @@ func collectMissingFields(
 		deprecated := isDeprecatedField(field, pass)
 		if cfg.IgnoreDeprecated && deprecated {
 			continue
+		}
+
+		// Handle non-marshallable fields based on configuration
+		isNonMarshallable := isNonMarshallableType(field.Type())
+		if isNonMarshallable {
+			switch cfg.NonMarshallableFieldsHandling {
+			case config.HandleIgnore:
+				// Skip non-marshallable fields entirely
+				continue
+			case config.HandleAdaptive:
+				// For adaptive mode, we'll handle this at the validation level
+				// (check if field exists in both input and output)
+				// For now, continue processing normally, but mark it specially
+				_ = isNonMarshallable // marker for later use
+			case config.HandleStrict:
+				// Treat as normal field - fall through
+			}
 		}
 
 		// Check if field is used directly
@@ -530,6 +579,86 @@ func NewFailedConverterValidationResult(in, out []string) *ConverterValidationRe
 	return &ConverterValidationResult{MissingInputFields: in, MissingOutputFields: out}
 }
 
+// filterMissingFieldsByNonMarshallableMode filters missing fields based on the NonMarshallableFieldsHandling config.
+// For "both-or-nothing" mode, only keeps non-marshallable fields that exist in both input and output missing lists.
+func filterMissingFieldsByNonMarshallableMode(
+	inMissing, outMissing []string,
+	inStruct, outStruct *types.Struct,
+) ([]string, []string) {
+	cfg := config.Get()
+
+	if cfg.NonMarshallableFieldsHandling != config.HandleAdaptive {
+		return inMissing, outMissing
+	}
+
+	// Build maps of field names to their types for both structs
+	inFieldTypes := make(map[string]types.Type)
+	outFieldTypes := make(map[string]types.Type)
+
+	for i := 0; i < inStruct.NumFields(); i++ {
+		field := inStruct.Field(i)
+		if field.Exported() {
+			inFieldTypes[field.Name()] = field.Type()
+		}
+	}
+
+	for i := 0; i < outStruct.NumFields(); i++ {
+		field := outStruct.Field(i)
+		if field.Exported() {
+			outFieldTypes[field.Name()] = field.Type()
+		}
+	}
+
+	// Filter missing fields: keep marshallable fields and non-marshallable fields that exist in both
+	var filteredInMissing []string
+	for _, fieldName := range inMissing {
+		// Extract field name (remove var prefix like "input.FieldName")
+		parts := strings.Split(fieldName, ".")
+		cleanName := parts[len(parts)-1]
+
+		inType := inFieldTypes[cleanName]
+		if inType == nil {
+			filteredInMissing = append(filteredInMissing, fieldName)
+			continue
+		}
+
+		isNonMarshallable := isNonMarshallableType(inType)
+		if !isNonMarshallable {
+			// Marshallable fields are always included
+			filteredInMissing = append(filteredInMissing, fieldName)
+		} else if outFieldTypes[cleanName] != nil {
+			// Non-marshallable field that exists in output - include it
+			filteredInMissing = append(filteredInMissing, fieldName)
+		}
+		// Otherwise, non-marshallable field not in output - skip it
+	}
+
+	var filteredOutMissing []string
+	for _, fieldName := range outMissing {
+		// Extract field name (remove var prefix)
+		parts := strings.Split(fieldName, ".")
+		cleanName := parts[len(parts)-1]
+
+		outType := outFieldTypes[cleanName]
+		if outType == nil {
+			filteredOutMissing = append(filteredOutMissing, fieldName)
+			continue
+		}
+
+		isNonMarshallable := isNonMarshallableType(outType)
+		if !isNonMarshallable {
+			// Marshallable fields are always included
+			filteredOutMissing = append(filteredOutMissing, fieldName)
+		} else if inFieldTypes[cleanName] != nil {
+			// Non-marshallable field that exists in input - include it
+			filteredOutMissing = append(filteredOutMissing, fieldName)
+		}
+		// Otherwise, non-marshallable field not in input - skip it
+	}
+
+	return filteredInMissing, filteredOutMissing
+}
+
 // ValidateConverter checks that the converter function fn uses every field
 // of the candidate input model (by reading) and every field of the candidate output model (by writing).
 //
@@ -604,6 +733,14 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 			missingOut[i] = outVar + "." + m
 		}
 	}
+
+	// Apply non-marshallable fields filtering based on configuration
+	missingIn, missingOut = filterMissingFieldsByNonMarshallableMode(
+		missingIn,
+		missingOut,
+		inCand.structType,
+		outCand.structType,
+	)
 
 	if len(missingIn) == 0 && len(missingOut) == 0 {
 		return NewOKConverterValidationResult(), nil
