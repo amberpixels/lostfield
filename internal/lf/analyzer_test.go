@@ -169,6 +169,16 @@ func TestNonMarshallableFields(t *testing.T) {
 	})
 }
 
+func TestPrivateFields(t *testing.T) {
+	t.Run("default mode (private fields ignored)", func(t *testing.T) {
+		// In default mode (IncludePrivateFields=false), private fields are skipped
+		// Only public fields (ID, Name) are validated
+		cfg := config.DefaultConfig()
+		cfg.IncludePrivateFields = false
+		runAnalysisTestWithConfig(t, "converters/11-private-fields/default", cfg)
+	})
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files

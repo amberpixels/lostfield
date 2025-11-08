@@ -109,6 +109,22 @@ type Config struct {
 	//
 	// Default: "adaptive"
 	NonMarshallableFieldsHandling NonMarshallableFieldsHandling
+
+	// IncludePrivateFields enables validation of unexported (private) fields in converters.
+	// Private fields are lowercase-starting fields (e.g., `id`, `internalCache`, `mutex`).
+	//
+	// Behavior:
+	//   - false (default): Skip private fields entirely during validation.
+	//     Example: Input has `id string` (private), it's not checked in the converter
+	//
+	//   - true: Treat private fields like public fields - they MUST be handled.
+	//     Example: Input has `id string` (private) → error if not read/set in converter
+	//
+	// Note: In Go, only exported (uppercase) fields can be accessed across packages in converters.
+	// This option is mostly useful for converters within the same package.
+	//
+	// Default: false (private fields ignored)
+	IncludePrivateFields bool
 }
 
 // DefaultConfig returns the default configuration.
@@ -127,6 +143,7 @@ func DefaultConfig() Config {
 		Verbose:                       false,          // Quiet output by default
 		Format:                        "default",      // Use standard go vet format by default
 		NonMarshallableFieldsHandling: HandleAdaptive, // Adapt to what's present in both input and output models by default
+		IncludePrivateFields:          false,          // Ignore private fields by default
 	}
 }
 
@@ -219,4 +236,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 			return nil
 		},
 	)
+
+	fs.BoolVar(&current.IncludePrivateFields, "include-private-fields", current.IncludePrivateFields,
+		"validate unexported (private) fields in converters (default: ignore private fields)")
 }

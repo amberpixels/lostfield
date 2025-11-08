@@ -462,9 +462,12 @@ func collectMissingFields(
 	var missing []string
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
-		// adjust this as needed.
+
+		// Skip private (unexported) fields unless explicitly enabled
 		if !field.Exported() {
-			continue
+			if !cfg.IncludePrivateFields {
+				continue
+			}
 		}
 
 		// Skip deprecated fields if configured
