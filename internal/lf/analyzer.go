@@ -452,10 +452,23 @@ func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
 // collectMissingFields is similar to checkAllFieldsUsed but returns a slice of missing field names.
 // It handles both direct fields and fields from embedded structs.
 // It also respects the NonMarshallableFieldsHandling configuration.
+// It now supports nested field tracking (e.g., "User.Role.Name").
 func collectMissingFields(
 	st *types.Struct,
 	usedFields UsageLookup,
 	pass *analysis.Pass,
+	usedMethodsArg ...UsageLookup,
+) []string {
+	return collectMissingFieldsWithPrefix(st, usedFields, pass, "", usedMethodsArg...)
+}
+
+// collectMissingFieldsWithPrefix recursively collects missing fields for a struct, tracking the nesting prefix.
+// For example, when validating nested structs, prefix might be "User.Role" to track User.Role.Name, User.Role.ID, etc.
+func collectMissingFieldsWithPrefix(
+	st *types.Struct,
+	usedFields UsageLookup,
+	pass *analysis.Pass,
+	prefix string,
 	usedMethodsArg ...UsageLookup,
 ) []string {
 	cfg := config.Get()
@@ -493,8 +506,20 @@ func collectMissingFields(
 			}
 		}
 
+		// Build the full field name with prefix
+		fullFieldName := field.Name()
+		if prefix != "" {
+			fullFieldName = prefix + "." + field.Name()
+		}
+
 		// Check if field is used directly
-		fieldUsed := usedFields.LookUp(field.Name())
+		fieldUsed := usedFields.LookUp(fullFieldName)
+
+		// Also check if this field is the start of a nested field chain
+		// For example, if looking for "User" and we have "User.Role.Name" in usedFields, that counts as using "User"
+		if !fieldUsed {
+			fieldUsed = isFieldPartOfNestedChain(fullFieldName, usedFields)
+		}
 
 		// For embedded structs, also check if the leaf fields are used through embedding
 		// E.g., if DbApple has embedded GormModel with field ID, and we do dbapple.ID = value,
@@ -511,10 +536,74 @@ func collectMissingFields(
 			if cfg.AllowGetters && len(usedMethodsArg) > 0 && usedMethodsArg[0].LookUp("Get"+field.Name()) {
 				continue
 			}
-			missing = append(missing, field.Name())
+			missing = append(missing, fullFieldName)
+		} else {
+			// Field is used - check if it's a struct field that needs nested validation
+			// Only validate nested fields if there are actually nested accesses in usedFields
+			nestedMissing := validateNestedStructField(field, fullFieldName, usedFields, pass)
+			missing = append(missing, nestedMissing...)
 		}
 	}
 	return missing
+}
+
+// validateNestedStructField checks if all fields of a nested struct are properly used.
+// It only performs validation if the nested field has explicit nested field accesses in usedFields.
+func validateNestedStructField(
+	field *types.Var,
+	fieldPath string,
+	usedFields UsageLookup,
+	pass *analysis.Pass,
+) []string {
+	var missing []string
+
+	// Get the field type, unwrapping pointers
+	fieldType := field.Type()
+	if ptr, ok := fieldType.(*types.Pointer); ok {
+		fieldType = ptr.Elem()
+	}
+
+	// Check if it's a named struct type
+	named, ok := fieldType.(*types.Named)
+	if !ok {
+		return missing
+	}
+
+	nestedStruct, ok := named.Underlying().(*types.Struct)
+	if !ok {
+		return missing
+	}
+
+	// Check if there are any nested field accesses for this field
+	// For example, if fieldPath is "User" and usedFields contains "User.Role.Name", we should validate User's fields
+	hasNestedAccess := false
+	prefix := fieldPath + "."
+	for usedField := range usedFields {
+		if strings.HasPrefix(usedField, prefix) {
+			hasNestedAccess = true
+			break
+		}
+	}
+
+	// Only validate nested fields if there are explicit nested accesses
+	if hasNestedAccess {
+		nestedMissing := collectMissingFieldsWithPrefix(nestedStruct, usedFields, pass, fieldPath)
+		missing = append(missing, nestedMissing...)
+	}
+
+	return missing
+}
+
+// isFieldPartOfNestedChain checks if a field is the start of a nested field access chain.
+// For example, if fieldName is "User" and usedFields contains "User.Role.Name", returns true.
+func isFieldPartOfNestedChain(fieldName string, usedFields UsageLookup) bool {
+	for usedField := range usedFields {
+		// Check if usedField starts with fieldName followed by a dot
+		if strings.HasPrefix(usedField, fieldName+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // areEmbeddedFieldsUsed checks if all exported fields of an embedded struct are used.

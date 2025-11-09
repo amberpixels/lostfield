@@ -185,18 +185,26 @@ func TestNestedFields(t *testing.T) {
 	})
 
 	t.Run("12-nested-fields:dirty", func(t *testing.T) {
-		// Converters with missing nested fields - testing which cases are detected
+		// Converters with missing nested fields - all cases are now fully detected
+		// Uses "want" comments in test code to specify exact expected diagnostics
 		runAnalysisTest(t, "converters/12-nested-fields/dirty",
-			// This one IS detected - missing entire first-level struct
+			DiagnosticAssertion{
+				FunctionName:  "ConvertEventToDTO_FullInlineDeclaration_Missed_Deep_Field",
+				FieldsMissing: []string{"event.User.Role.Name", "User.Role.Name"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertEventToDTO_FullInlineDeclaration_Missed_Pointer_Field",
+				FieldsMissing: []string{"event.User.Group", "User.Group"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertEventToDTO_Mixed_Missed_Nested_Field",
+				FieldsMissing: []string{"event.Owner.Group", "result.Owner.Group"},
+			},
 			DiagnosticAssertion{
 				FunctionName:  "ConvertEventToDTO_DotNotation_Missed_First_Level",
-				FieldsMissing: []string{"event.User", "result.User"},
+				FieldsMissing: []string{"event.User", "result.User", "result.Owner.ID", "result.Owner.Name"},
 			},
 		)
-		// BUG: The following cases are NOT detected:
-		// - ConvertEventToDTO_FullInlineDeclaration_Missed_Deep_Field: missing nested field in struct literal
-		// - ConvertEventToDTO_FullInlineDeclaration_Missed_Pointer_Field: missing pointer field in struct literal
-		// - ConvertEventToDTO_Mixed_Missed_Nested_Field: missing field in mixed approach
 	})
 }
 

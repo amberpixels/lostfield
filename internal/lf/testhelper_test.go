@@ -37,8 +37,8 @@ func runAnalysisTest(t *testing.T, pkgPath string, assertions ...DiagnosticAsser
 	// Collect all diagnostics from all results
 	var diagnostics []*analysis.Diagnostic
 	for _, result := range results {
-		for i := range result.Diagnostics {
-			diagnostics = append(diagnostics, &result.Diagnostics[i])
+		for _, diag := range result.Action.Diagnostics {
+			diagnostics = append(diagnostics, &diag)
 		}
 	}
 

@@ -25,6 +25,7 @@ func (ul UsageLookup) LookUp(v string) bool {
 
 // UsageCollector is a generic AST visitor that collects selector usage for a given variable.
 // rType(RecordingType) stands for the type of things we record: fields or methods.
+// It now tracks nested field accesses (e.g., event.User.Role.Name) by recording the full chain.
 type UsageCollector struct {
 	used        UsageLookup
 	varName     string
@@ -60,9 +61,11 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 		return v
 	}
 
-	// Check that the expression's X is an identifier matching varName.
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok || ident.Name != v.varName {
+	// Build the chain of field accesses starting from varName.
+	// For example, in "event.User.Role.Name", this will record "User", "User.Role", and "User.Role.Name"
+	fieldChain := v.buildFieldChain(sel)
+	if fieldChain == "" {
+		// Not a direct access to varName
 		return v
 	}
 
@@ -77,7 +80,7 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 
 	// Decide based on the mode.
 	if v.nodesType == RecordMethods && isMethodCall || !isMethodCall {
-		v.used[sel.Sel.Name] = struct{}{}
+		v.used[fieldChain] = struct{}{}
 	}
 
 	// Also check if this selector is used in a blank identifier assignment (e.g., _ = model.Field)
@@ -88,13 +91,47 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 			if len(assign.Lhs) > 0 {
 				if ident, ok := assign.Lhs[0].(*ast.Ident); ok && ident.Name == "_" {
 					// This is an assignment to blank identifier, mark field as used
-					v.used[sel.Sel.Name] = struct{}{}
+					v.used[fieldChain] = struct{}{}
 				}
 			}
 		}
 	}
 
 	return v
+}
+
+// buildFieldChain builds a chain of field accesses from a SelectorExpr.
+// For example, given event.User.Role.Name, it returns "User.Role.Name" (without the varName prefix).
+// Returns empty string if the selector chain doesn't start with varName.
+func (v *UsageCollector) buildFieldChain(sel *ast.SelectorExpr) string {
+	var chain []string
+
+	// Walk up the selector chain and collect field names
+	for current := sel; current != nil; {
+		chain = append([]string{current.Sel.Name}, chain...)
+
+		// Check the X part of the current selector
+		switch x := current.X.(type) {
+		case *ast.Ident:
+			// We've reached the base variable
+			if x.Name == v.varName {
+				// Successfully traced back to varName - return the full chain
+				return strings.Join(chain, ".")
+			}
+			// Not our variable
+			return ""
+
+		case *ast.SelectorExpr:
+			// Continue walking up the chain
+			current = x
+
+		default:
+			// Some other expression type we don't handle
+			return ""
+		}
+	}
+
+	return ""
 }
 
 func (v *UsageCollector) reset() {
@@ -196,7 +233,7 @@ func CollectOutputFields(fn *ast.FuncDecl, outVar, candidateName string) UsageLo
 }
 
 // extractKeysFromExpr examines expr and, if it is or contains a composite literal
-// that initializes a value of type candidateName, it extracts any key names and adds them to keys.
+// that initializes a value of type candidateName, it extracts any key names (including nested ones) and adds them to keys.
 func extractKeysFromExpr(expr ast.Expr, candidateName string, keys UsageLookup) {
 	var cl *ast.CompositeLit
 
@@ -250,14 +287,75 @@ func extractKeysFromExpr(expr ast.Expr, candidateName string, keys UsageLookup) 
 		return
 	}
 
-	// Extract keys from key-value pairs.
+	// Extract keys from key-value pairs, including nested ones
+	extractKeysFromCompositeLit(cl, keys)
+}
+
+// extractKeysFromCompositeLit recursively extracts all keys from a composite literal,
+// including nested keys from nested composite literals.
+// For example, in Category{Type: RoleDTO{ID: "x", Name: "y"}, ...},
+// it extracts "Type", "ID", and "Name".
+func extractKeysFromCompositeLit(cl *ast.CompositeLit, keys UsageLookup) {
+	extractKeysFromCompositeLitWithPrefix(cl, keys, "")
+}
+
+// extractKeysFromCompositeLitWithPrefix recursively extracts all keys from a composite literal with a prefix.
+// The prefix is used to build nested key paths like "Role.Name" for nested composite literals.
+func extractKeysFromCompositeLitWithPrefix(cl *ast.CompositeLit, keys UsageLookup, prefix string) {
+	if cl == nil {
+		return
+	}
+
+	// Extract keys from key-value pairs
 	for _, elt := range cl.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
 			continue
 		}
+
+		// Add the immediate key
 		if keyIdent, ok := kv.Key.(*ast.Ident); ok {
-			keys[keyIdent.Name] = struct{}{}
+			fullKey := keyIdent.Name
+			if prefix != "" {
+				fullKey = prefix + "." + fullKey
+			}
+			keys[fullKey] = struct{}{}
+
+			// Recursively extract nested keys with this key as the prefix
+			extractKeysFromValueWithPrefix(kv.Value, keys, fullKey)
+		}
+	}
+}
+
+// extractKeysFromValueWithPrefix recursively extracts keys from nested expressions with a prefix.
+func extractKeysFromValueWithPrefix(expr ast.Expr, keys UsageLookup, prefix string) {
+	if expr == nil {
+		return
+	}
+
+	switch x := expr.(type) {
+	case *ast.CompositeLit:
+		// Recursively extract keys from nested composite literal
+		extractKeysFromCompositeLitWithPrefix(x, keys, prefix)
+
+	case *ast.UnaryExpr:
+		// Handle &CompositeType{...}
+		if x.Op == token.AND {
+			extractKeysFromValueWithPrefix(x.X, keys, prefix)
+		}
+
+	case *ast.ParenExpr:
+		// Handle (CompositeType{...})
+		extractKeysFromValueWithPrefix(x.X, keys, prefix)
+
+	case *ast.CallExpr:
+		// Handle calls like (&Type{...}).Method()
+		if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+			recv := sel.X
+			if paren, ok := recv.(*ast.ParenExpr); ok {
+				recv = paren.X
+			}
+			extractKeysFromValueWithPrefix(recv, keys, prefix)
 		}
 	}
 }

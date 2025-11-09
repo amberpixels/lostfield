@@ -6,7 +6,7 @@ import (
 )
 
 // Missing deeply nested field in inline declaration
-func ConvertEventToDTO_FullInlineDeclaration_Missed_Deep_Field(event domain.Event) dto.EventDTO {
+func ConvertEventToDTO_FullInlineDeclaration_Missed_Deep_Field(event domain.Event) dto.EventDTO { // want "incomplete converter with missing fields: event.User.Role.Name, User.Role.Name"
 	return dto.EventDTO{
 		ID:    event.ID,
 		Title: event.Title,
@@ -38,7 +38,7 @@ func ConvertEventToDTO_FullInlineDeclaration_Missed_Deep_Field(event domain.Even
 }
 
 // Missing pointer field in inline declaration
-func ConvertEventToDTO_FullInlineDeclaration_Missed_Pointer_Field(event domain.Event) dto.EventDTO {
+func ConvertEventToDTO_FullInlineDeclaration_Missed_Pointer_Field(event domain.Event) dto.EventDTO { // want "incomplete converter with missing fields: event.User.Group, User.Group"
 	return dto.EventDTO{
 		ID:    event.ID,
 		Title: event.Title,
@@ -67,7 +67,7 @@ func ConvertEventToDTO_FullInlineDeclaration_Missed_Pointer_Field(event domain.E
 }
 
 // Missing field in mixed declaration and dot notation approach
-func ConvertEventToDTO_Mixed_Missed_Nested_Field(event domain.Event) (result dto.EventDTO) {
+func ConvertEventToDTO_Mixed_Missed_Nested_Field(event domain.Event) (result dto.EventDTO) { // want "incomplete converter with missing fields: event.Owner.Group, result.Owner.Group"
 	result = dto.EventDTO{
 		ID:    event.ID,
 		Title: event.Title,
