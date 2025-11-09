@@ -179,6 +179,27 @@ func TestPrivateFields(t *testing.T) {
 	})
 }
 
+func TestNestedFields(t *testing.T) {
+	t.Run("12-nested-fields:clean", func(t *testing.T) {
+		runAnalysisTest(t, "converters/12-nested-fields/clean")
+	})
+
+	t.Run("12-nested-fields:dirty", func(t *testing.T) {
+		// Converters with missing nested fields - testing which cases are detected
+		runAnalysisTest(t, "converters/12-nested-fields/dirty",
+			// This one IS detected - missing entire first-level struct
+			DiagnosticAssertion{
+				FunctionName:  "ConvertEventToDTO_DotNotation_Missed_First_Level",
+				FieldsMissing: []string{"event.User", "result.User"},
+			},
+		)
+		// BUG: The following cases are NOT detected:
+		// - ConvertEventToDTO_FullInlineDeclaration_Missed_Deep_Field: missing nested field in struct literal
+		// - ConvertEventToDTO_FullInlineDeclaration_Missed_Pointer_Field: missing pointer field in struct literal
+		// - ConvertEventToDTO_Mixed_Missed_Nested_Field: missing field in mixed approach
+	})
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files
