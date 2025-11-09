@@ -751,6 +751,64 @@ func filterMissingFieldsByNonMarshallableMode(
 	return filteredInMissing, filteredOutMissing
 }
 
+// filterMissingFieldsByValidationMode filters missing fields based on the FieldValidationMode config.
+// For "intersection" mode, only keeps fields that exist in both input and output types.
+func filterMissingFieldsByValidationMode(
+	inMissing, outMissing []string,
+	inStruct, outStruct *types.Struct,
+) ([]string, []string) {
+	cfg := config.Get()
+
+	if cfg.FieldValidationMode != config.ModeIntersection {
+		return inMissing, outMissing
+	}
+
+	// Build sets of field names for both structs
+	inFieldNames := make(map[string]bool)
+	outFieldNames := make(map[string]bool)
+
+	for i := 0; i < inStruct.NumFields(); i++ {
+		field := inStruct.Field(i)
+		if field.Exported() {
+			inFieldNames[field.Name()] = true
+		}
+	}
+
+	for i := 0; i < outStruct.NumFields(); i++ {
+		field := outStruct.Field(i)
+		if field.Exported() {
+			outFieldNames[field.Name()] = true
+		}
+	}
+
+	// In intersection mode, only keep missing fields that exist in both structs
+	var filteredInMissing []string
+	for _, fieldName := range inMissing {
+		// Extract field name (remove var prefix like "input.FieldName")
+		parts := strings.Split(fieldName, ".")
+		cleanName := parts[len(parts)-1]
+
+		// Only report as missing if the field also exists in output
+		if outFieldNames[cleanName] {
+			filteredInMissing = append(filteredInMissing, fieldName)
+		}
+	}
+
+	var filteredOutMissing []string
+	for _, fieldName := range outMissing {
+		// Extract field name (remove var prefix)
+		parts := strings.Split(fieldName, ".")
+		cleanName := parts[len(parts)-1]
+
+		// Only report as missing if the field also exists in input
+		if inFieldNames[cleanName] {
+			filteredOutMissing = append(filteredOutMissing, fieldName)
+		}
+	}
+
+	return filteredInMissing, filteredOutMissing
+}
+
 // ValidateConverter checks that the converter function fn uses every field
 // of the candidate input model (by reading) and every field of the candidate output model (by writing).
 //
@@ -828,6 +886,14 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 
 	// Apply non-marshallable fields filtering based on configuration
 	missingIn, missingOut = filterMissingFieldsByNonMarshallableMode(
+		missingIn,
+		missingOut,
+		inCand.structType,
+		outCand.structType,
+	)
+
+	// Apply field validation mode filtering based on configuration
+	missingIn, missingOut = filterMissingFieldsByValidationMode(
 		missingIn,
 		missingOut,
 		inCand.structType,

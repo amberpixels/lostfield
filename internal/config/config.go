@@ -31,6 +31,22 @@ const (
 	HandleStrict NonMarshallableFieldsHandling = "strict"
 )
 
+// FieldValidationMode specifies which fields must be validated in a converter.
+type FieldValidationMode string
+
+const (
+	// ModeStrict: All fields from both input and output types must be handled.
+	// Example: Input{Name, Email, Phone} → Output{Name, Email, Surname}
+	// Must validate: Name, Email, Phone (input) and Name, Email, Surname (output)
+	ModeStrict FieldValidationMode = "strict"
+
+	// ModeIntersection: Only fields present in both input and output types must be handled.
+	// Pragmatic approach: ignores fields that only exist in one side.
+	// Example: Input{Name, Email, Phone} → Output{Name, Email, Surname}
+	// Must validate only: Name, Email (intersection)
+	ModeIntersection FieldValidationMode = "intersection"
+)
+
 // Config holds all configuration for the analyzer.
 type Config struct {
 	// AllowMethodConverters enables looking for converters in methods in addition to plain functions.
@@ -125,6 +141,21 @@ type Config struct {
 	//
 	// Default: false (private fields ignored)
 	IncludePrivateFields bool
+
+	// FieldValidationMode specifies which fields must be validated in converters.
+	// Determines the scope of field validation for converter functions.
+	//
+	// Behavior:
+	//   - "strict" (default): All fields from both input and output types must be handled.
+	//     Example: Input{Name, Email, Phone} → Output{Name, Email, Surname}
+	//     Error if: Phone (from input) or Surname (from output) not handled
+	//
+	//   - "intersection": Only fields present in both input and output must be handled.
+	//     Example: Input{Name, Email, Phone} → Output{Name, Email, Surname}
+	//     Only Name and Email must be validated (intersection)
+	//
+	// Default: "strict"
+	FieldValidationMode FieldValidationMode
 }
 
 // DefaultConfig returns the default configuration.
@@ -144,6 +175,7 @@ func DefaultConfig() Config {
 		Format:                        "default",      // Use standard go vet format by default
 		NonMarshallableFieldsHandling: HandleAdaptive, // Adapt to what's present in both input and output models by default
 		IncludePrivateFields:          false,          // Ignore private fields by default
+		FieldValidationMode:           ModeStrict,     // Validate all fields by default
 	}
 }
 
@@ -239,4 +271,13 @@ func RegisterFlags(fs *flag.FlagSet) {
 
 	fs.BoolVar(&current.IncludePrivateFields, "include-private-fields", current.IncludePrivateFields,
 		"validate unexported (private) fields in converters (default: ignore private fields)")
+
+	fs.Func(
+		"field-validation-mode",
+		"field validation mode (strict: all fields from both input and output, intersection: only common fields)",
+		func(s string) error {
+			current.FieldValidationMode = FieldValidationMode(s)
+			return nil
+		},
+	)
 }
