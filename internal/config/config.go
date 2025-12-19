@@ -37,13 +37,13 @@ type FieldValidationMode string
 const (
 	// ModeStrict: All fields from both input and output types must be handled.
 	// Example: Input{Name, Email, Phone} → Output{Name, Email, Surname}
-	// Must validate: Name, Email, Phone (input) and Name, Email, Surname (output)
+	// Must validate: Name, Email, Phone (input) and Name, Email, Surname (output).
 	ModeStrict FieldValidationMode = "strict"
 
 	// ModeIntersection: Only fields present in both input and output types must be handled.
 	// Pragmatic approach: ignores fields that only exist in one side.
 	// Example: Input{Name, Email, Phone} → Output{Name, Email, Surname}
-	// Must validate only: Name, Email (intersection)
+	// Must validate only: Name, Email (intersection).
 	ModeIntersection FieldValidationMode = "intersection"
 )
 
