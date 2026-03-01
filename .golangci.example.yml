@@ -10,16 +10,22 @@ linters:
 linters-settings:
   lostfield:
     # Check method receivers in addition to plain functions
-    # Default: false
+    # Default: true
     # When enabled, the linter will also check methods (functions with receivers)
     # Example: func (s *Service) ConvertUserToDTO(user User) UserDTO
-    include-methods: false
+    include-methods: true
 
     # Allow Get* methods as a substitute for direct field access
     # Default: true
     # When enabled, fields accessed via getter methods (e.g., user.GetName())
     # are considered "used" even if the field itself isn't directly accessed
     allow-getters: true
+
+    # Enable detection of slice->non-slice aggregating converters
+    # Default: true
+    # When enabled, detects functions that take a slice and produce a struct
+    # containing the converted slice (e.g., []Item -> ItemsResponse{Items: [...]})
+    allow-aggregators: true
 
     # Comma-separated regex patterns for field names to ignore
     # Default: "" (empty)
@@ -30,19 +36,82 @@ linters-settings:
     # Example: "CreatedAt,UpdatedAt,DeletedAt,.*ID"
     exclude-fields: ""
 
+    # Comma-separated glob patterns for function/method names to exclude from converter detection
+    # Default: "" (empty)
+    # Supports wildcards: * matches any sequence of characters, ? matches a single character
+    # Example: "Get*,Map*,to*,*Helper"
+    exclude-converters: ""
+
+    # Comma-separated glob patterns for function/method names to include (only matching converters are analyzed)
+    # Default: "" (empty)
+    # When non-empty, only converters matching at least one pattern are analyzed (inverse of exclude-converters)
+    # Useful for targeting specific converters during development
+    # Example: "CuratorPurchase,Convert*"
+    only-converters: ""
+
+    # Comma-separated glob patterns for file paths to exclude from analysis
+    # Default: "*_test.go,*.pb.go,*/vendor/*"
+    # Supports wildcards: * matches any sequence of characters, ? matches a single character
+    # Patterns are matched against the full file path
+    exclude-files: "*_test.go,*.pb.go,*/vendor/*"
+
     # Minimum type name similarity ratio (0.0-1.0)
     # Default: 0.0 (substring matching)
     # 0.0 = use substring matching (e.g., "User" matches "UserDTO")
-    # Higher values (e.g., 0.8) require more similar type names
-    # Uses Levenshtein distance for similarity calculation (future feature)
+    # Higher values require more similar type names
     min-similarity: 0.0
 
     # Comma-separated struct tags that mark fields to ignore
     # Default: "" (empty)
     # Fields with these tags will be ignored by the linter
-    # Example: 'lostfield:"ignore",json:"-"'
-    # Note: This is a planned feature for future implementation
+    # Example: 'lostfield:"ignore"'
     ignore-tags: ""
+
+    # Include generated code files in analysis
+    # Default: false
+    # When false, files with "DO NOT EDIT", "auto-generated", etc. markers are skipped
+    include-generated: false
+
+    # Include deprecated fields in validation
+    # Default: false
+    # When false, fields marked with "Deprecated:" in their doc comments are ignored
+    include-deprecated: false
+
+    # Validate unexported (private) fields in converters
+    # Default: false
+    # When false, lowercase-starting fields (e.g., id, internalCache) are skipped
+    # Mostly useful for converters within the same package
+    include-private-fields: false
+
+    # How to handle non-marshallable field types (func, chan, etc.)
+    # Default: "adaptive"
+    # Options:
+    #   - "ignore":   Skip non-marshallable fields entirely
+    #   - "adaptive": Validate only if present in both input AND output types
+    #   - "strict":   Treat non-marshallable fields like normal fields
+    non-marshallable-fields: "adaptive"
+
+    # Field validation mode
+    # Default: "strict"
+    # Options:
+    #   - "strict":       All fields from both input and output types must be handled
+    #   - "intersection": Only fields present in both input and output must be handled
+    field-validation-mode: "strict"
+
+    # Enable verbose output
+    # Default: false
+    # When enabled with pretty format, shows all missing fields instead of truncating to 3 per side
+    verbose: false
+
+    # Output format for diagnostics
+    # Default: "default"
+    # Options:
+    #   - "default": Standard go vet format
+    #   - "pretty":  Rust-like pretty format with colors
+    # Note: When using with golangci-lint, the output format is controlled by
+    # golangci-lint's -out-format flag, and the linter uses "default" automatically
+    format: "default"
+
 # Example usage scenarios:
 
 # Scenario 1: Strict checking (check everything)
@@ -50,17 +119,22 @@ linters-settings:
 #   lostfield:
 #     include-methods: true
 #     allow-getters: false
-#     exclude-fields: ""
+#     field-validation-mode: "strict"
+#     non-marshallable-fields: "strict"
+#     include-private-fields: true
 
 # Scenario 2: Lenient checking (ignore common patterns)
 # linters-settings:
 #   lostfield:
-#     include-methods: false
+#     include-methods: true
 #     allow-getters: true
 #     exclude-fields: "CreatedAt,UpdatedAt,DeletedAt,.*ID,.*At"
+#     field-validation-mode: "intersection"
+#     non-marshallable-fields: "ignore"
 
-# Scenario 3: Focus on converters only (default)
+# Scenario 3: Focus on converters only (skip helpers and test-like functions)
 # linters-settings:
 #   lostfield:
-#     include-methods: false
+#     include-methods: true
 #     allow-getters: true
+#     exclude-converters: "Get*,Map*,*Helper"

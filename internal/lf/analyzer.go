@@ -99,11 +99,12 @@ func Run(pass *analysis.Pass) (any, error) {
 
 				// Format the diagnostic message using the configured formatter.
 				// Convert the local validation result to the formatter package's type.
-				fmt := formatter.New(config.Get().Format)
+				fmt := formatter.New(cfg.Format)
 				formattedMessage := fmt.Format(&formatter.FormatContext{
 					Filename: filename,
 					Fn:       fn,
 					Pass:     pass,
+					Verbose:  cfg.Verbose,
 					Validation: &formatter.ConverterValidationResult{
 						Valid:               validationResult.Valid,
 						ConverterType:       string(validationResult.ConverterType),
@@ -131,20 +132,21 @@ func Run(pass *analysis.Pass) (any, error) {
 	// At the end of processing all files, print the total number of warnings.
 	// Only print if verbose mode is enabled.
 	if cfg.Verbose {
+		// Write to stderr because stdout is used by go vet's JSON protocol.
 		if warningsTotal > 0 {
 			fmt.Fprintf(
-				os.Stdout,
+				os.Stderr,
 				"\nFiles total analyzed: %d. Warnings: %d caught in %d files\n",
 				filesTotal,
 				warningsTotal,
 				filesWarned,
 			)
 		} else {
-			fmt.Fprintf(os.Stdout, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
+			fmt.Fprintf(os.Stderr, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
 		}
 	}
 
-	return nil, nil //nolint: nilnil // fix later
+	return nil, nil //nolint:nilnil // analyzer does not produce results for downstream analyzers
 }
 
 // ContainerType represents the "container" kind for a candidate type.
@@ -229,8 +231,6 @@ func isConstructor(fn *ast.FuncDecl) bool {
 //     the names of the candidate types share a common substring (ignoring case).
 //
 // Constructors (functions starting with "New") are excluded.
-//
-// TODO: it can't be the same type e.g. HandleRewrites(sectionRewrites) (string, SectionRewrite, erro)
 func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 	cfg := config.Get()
 
@@ -241,6 +241,11 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 
 	// Check if the function name matches any exclusion patterns
 	if len(cfg.ExcludeConverterPatterns) > 0 && MatchesAnyPattern(fn.Name.Name, cfg.ExcludeConverterPatterns) {
+		return false
+	}
+
+	// If only-converters is set, reject functions that don't match any pattern
+	if len(cfg.OnlyConverterPatterns) > 0 && !MatchesAnyPattern(fn.Name.Name, cfg.OnlyConverterPatterns) {
 		return false
 	}
 

@@ -347,13 +347,11 @@ func TestIsPossibleConverter(t *testing.T) {
 			funcName: "UnrelatedTypes",
 			want:     false,
 		},
-		// TODO: This is a known issue mentioned in analyzer.go:168
-		// The function currently incorrectly identifies same-type conversions as converters
-		// {
-		// 	name:     "same type input and output",
-		// 	funcName: "SameTypeInOut",
-		// 	want:     false,
-		// },
+		{
+			name:     "same type input and output",
+			funcName: "SameTypeInOut",
+			want:     false,
+		},
 		{
 			name:     "multiple unrelated structs",
 			funcName: "MultipleUnrelatedStructs",

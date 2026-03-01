@@ -21,62 +21,73 @@ type prettyFormatter struct{}
 // It independently formats the message from the raw validation data.
 func (c *prettyFormatter) Format(ctx *FormatContext) string {
 	// Create the detailed field mapping message from raw validation data
-	message := c.formatValidationMessage(ctx.Validation)
+	message := c.formatValidationMessage(ctx.Validation, ctx.Verbose)
 
 	var buf bytes.Buffer
 	c.prettyPrint(&buf, ctx.Filename, ctx.Fn, ctx.Pass, message, ctx.Validation.ConverterType)
 	return buf.String()
 }
 
+// maxFieldsPerSide is the maximum number of fields to display per side (input/output)
+// before truncating with a "... and N more" message.
+const maxFieldsPerSide = 3
+
 // formatValidationMessage creates a detailed field mapping message from raw validation data.
 // This is the core message that the pretty printer will display.
-func (c *prettyFormatter) formatValidationMessage(validation *ConverterValidationResult) string {
+// When verbose is false, fields are truncated to maxFieldsPerSide per side with a hint.
+func (c *prettyFormatter) formatValidationMessage(validation *ConverterValidationResult, verbose bool) string {
 	var buf strings.Builder
-	buf.WriteString("= note: missing fields:\n")
 
-	if len(validation.MissingInputFields) == 0 && len(validation.MissingOutputFields) == 0 {
+	totalMissing := len(validation.MissingInputFields) + len(validation.MissingOutputFields)
+	if totalMissing == 0 {
+		buf.WriteString("= note: missing fields:\n")
 		return buf.String()
 	}
 
-	// Simplification: if no input fields are missing but many output fields are, just say "all output fields"
-	if len(validation.MissingInputFields) == 0 && len(validation.MissingOutputFields) > 5 {
-		buf.WriteString("  ??  → all output fields")
-		return buf.String()
+	fmt.Fprintf(&buf, "= note: missing fields (%d):\n", totalMissing)
+
+	inFields := validation.MissingInputFields
+	outFields := validation.MissingOutputFields
+
+	// Determine how many fields to show per side
+	inShow := len(inFields)
+	outShow := len(outFields)
+	if !verbose {
+		inShow = min(len(inFields), maxFieldsPerSide)
+		outShow = min(len(outFields), maxFieldsPerSide)
 	}
 
-	// Similarly, if no output fields are missing but many input fields are, say "all input fields"
-	if len(validation.MissingOutputFields) == 0 && len(validation.MissingInputFields) > 5 {
-		buf.WriteString("  all input fields → ??")
-		return buf.String()
-	}
-
-	// Calculate the maximum length for alignment of the arrow
-	maxLen := 0
-	for _, field := range validation.MissingInputFields {
+	// Calculate the maximum length for alignment of the arrow (only from visible fields)
+	maxLen := 2 // minimum width for "??"
+	for _, field := range inFields[:inShow] {
 		if len(field) > maxLen {
 			maxLen = len(field)
 		}
-	}
-	for _, field := range validation.MissingOutputFields {
-		if len(field) > maxLen {
-			maxLen = len(field)
-		}
-	}
-	// Account for the leading space and ensure minimum width
-	if maxLen < 1 {
-		maxLen = 1
 	}
 
 	// Add input fields (missing in output mapping)
-	for _, field := range validation.MissingInputFields {
+	for _, field := range inFields[:inShow] {
 		padding := strings.Repeat(" ", maxLen-len(field)+1)
 		buf.WriteString("\n  " + field + padding + "→ ??")
 	}
+	inRemaining := len(inFields) - inShow
+	if inRemaining > 0 {
+		fmt.Fprintf(&buf, "\n  ... and %d more input fields", inRemaining)
+	}
 
 	// Add output fields (missing in input mapping)
-	for _, field := range validation.MissingOutputFields {
+	for _, field := range outFields[:outShow] {
 		padding := strings.Repeat(" ", maxLen-len("??")+1)
 		buf.WriteString("\n  " + "??" + padding + "→ " + field)
+	}
+	outRemaining := len(outFields) - outShow
+	if outRemaining > 0 {
+		fmt.Fprintf(&buf, "\n  ... and %d more output fields", outRemaining)
+	}
+
+	// Add re-run hint when any fields were truncated
+	if inRemaining > 0 || outRemaining > 0 {
+		buf.WriteString("\n  hint: re-run with -lostfield.verbose for full list, or -lostfield.only-converters=\"FuncName\" to target a specific function")
 	}
 
 	return buf.String()

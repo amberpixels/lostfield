@@ -27,6 +27,7 @@ type FormatContext struct {
 	Fn         *ast.FuncDecl
 	Pass       *analysis.Pass
 	Validation *ConverterValidationResult
+	Verbose    bool
 }
 
 // Formatter interface defines how to format diagnostic messages.

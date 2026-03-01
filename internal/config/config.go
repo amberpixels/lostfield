@@ -8,7 +8,7 @@ import (
 // Linter metadata constants.
 const (
 	LinterName = "lostfield"
-	LinterDoc  = "reports all inconsistent converter functions: finds lost fields)"
+	LinterDoc  = "reports all inconsistent converter functions: finds lost fields"
 )
 
 // NonMarshallableFieldsHandling specifies how to handle non-marshallable field types
@@ -72,6 +72,13 @@ type Config struct {
 	// Default: []
 	ExcludeConverterPatterns []string
 
+	// OnlyConverterPatterns is a comma-separated list of glob patterns for function/method names to include.
+	// When non-empty, only converters matching at least one pattern are analyzed (inverse of exclude-converters).
+	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
+	// Examples: "CuratorPurchase", "Convert*"
+	// Default: []
+	OnlyConverterPatterns []string
+
 	// ExcludeFilePatterns is a comma-separated list of glob patterns for file paths to exclude from analysis.
 	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
 	// Patterns are matched against the full file path.
@@ -103,7 +110,7 @@ type Config struct {
 	Verbose bool
 
 	// Format specifies the output format for diagnostics.
-	// Supported values: "default" (standard go vet format), "custom" (Rust-like pretty format).
+	// Supported values: "default" (standard go vet format), "pretty" (Rust-like pretty format).
 	// Default: "default"
 	Format string
 
@@ -166,6 +173,7 @@ func DefaultConfig() Config {
 		AllowAggregators:              true,
 		ExcludeFieldPatterns:          []string{},
 		ExcludeConverterPatterns:      []string{},
+		OnlyConverterPatterns:         []string{},
 		ExcludeFilePatterns:           []string{"*_test.go", "*.pb.go", "*/vendor/*"},
 		MinTypeNameSimilarity:         0.0, // 0 = use strict substring matching.
 		IgnoreFieldTags:               []string{},
@@ -231,6 +239,15 @@ func RegisterFlags(fs *flag.FlagSet) {
 	)
 
 	fs.Func(
+		"only-converters",
+		"comma-separated glob patterns for function/method names to include (only matching converters are analyzed)",
+		func(s string) error {
+			current.OnlyConverterPatterns = splitCommaSeparated(s)
+			return nil
+		},
+	)
+
+	fs.Func(
 		"exclude-files",
 		"comma-separated glob patterns for file paths to exclude from analysis (e.g., '*_test.go,*.pb.go,*/vendor/*')",
 		func(s string) error {
@@ -258,7 +275,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"include deprecated fields in validation (default: exclude)")
 
 	fs.StringVar(&current.Format, "format", current.Format,
-		"output format for diagnostics (default: standard go vet format, custom: Rust-like pretty format)")
+		"output format for diagnostics (default: standard go vet format, pretty: Rust-like pretty format)")
 
 	fs.Func(
 		"non-marshallable-fields",
