@@ -171,7 +171,9 @@ func (c *prettyFormatter) prettyPrint(
 	fmt.Fprintf(w, "\n%*s %s\n", gutterWidth, "", blue("|"))
 	lineNum := blue(fmt.Sprintf("%*d", gutterWidth, pos.Line))
 	pipe := blue(" |")
-	fmt.Fprintf(w, "%s%s %s %*s%s\n", lineNum, pipe, "", minSpacing, "", shortLine)
+	//nolint:gosec // CLI output, not web
+	fmt.Fprintf(w, "%s%s %s %*s%s\n",
+		lineNum, pipe, "", minSpacing, "", shortLine)
 
 	// Adjust caret position to account for the min spacing
 	caretLine := strings.Repeat(" ", newCaret+minSpacing) + yellow(strings.Repeat("^", fnNameLen))
@@ -181,7 +183,9 @@ func (c *prettyFormatter) prettyPrint(
 	if converterType != "" {
 		typeLabel = " detected as " + converterType
 	}
-	fmt.Fprintf(w, "%*s %s  %s%s\n", gutterWidth, "", blue("|"), caretLine, yellow(typeLabel))
+	//nolint:gosec // CLI output, not web
+	fmt.Fprintf(w, "%*s %s  %s%s\n",
+		gutterWidth, "", blue("|"), caretLine, yellow(typeLabel))
 
 	// Add blank line with just the pipe
 	fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", blue("|"))
