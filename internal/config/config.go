@@ -163,6 +163,21 @@ type Config struct {
 	//
 	// Default: "strict"
 	FieldValidationMode FieldValidationMode
+
+	// FixMode controls whether diagnostics carry SuggestedFixes for automatic fixing.
+	// When combined with the -fix flag (from singlechecker), fixes are applied automatically.
+	//
+	// Behavior:
+	//   - "" (empty, default): Fix generation is disabled. Diagnostics are reported without fixes.
+	//   - "safe": Generate safe fixes that suppress warnings without changing behavior.
+	//     Uses `_ = var.Field` pattern for both input and output missing fields.
+	//   - "smart": Generate smart fixes that infer the correct field mapping.
+	//     For fields present in both missing input and output, generates direct assignments,
+	//     getter calls, or type conversions. Falls back to safe fix for incompatible types.
+	//     When mode is "smart", the smart fix is listed first (applied by -fix), safe fix second.
+	//
+	// Default: "" (disabled)
+	FixMode string
 }
 
 // DefaultConfig returns the default configuration.
@@ -184,6 +199,7 @@ func DefaultConfig() Config {
 		NonMarshallableFieldsHandling: HandleAdaptive, // Adapt to what's present in both input and output models by default
 		IncludePrivateFields:          false,          // Ignore private fields by default
 		FieldValidationMode:           ModeStrict,     // Validate all fields by default
+		FixMode:                       "",             // Fix generation disabled by default
 	}
 }
 
@@ -297,4 +313,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 			return nil
 		},
 	)
+
+	fs.StringVar(&current.FixMode, "fix-mode", current.FixMode,
+		"fix mode for automatic fixes (empty=disabled, safe=suppress warnings, smart=infer mappings)")
 }

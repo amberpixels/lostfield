@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/amberpixels/lostfield/internal/config"
+	"github.com/amberpixels/lostfield/internal/lf/fixer"
 	"github.com/amberpixels/lostfield/internal/lf/formatter"
 	"golang.org/x/tools/go/analysis"
 )
@@ -140,9 +141,18 @@ func Run(pass *analysis.Pass) (any, error) {
 			},
 		})
 
+		var suggestedFixes []analysis.SuggestedFix
+		if d.validation.Fix != nil && cfg.FixMode != "" {
+			suggestedFixes = fixer.GenerateFixes(d.validation.Fix, &fixer.ValidationResult{
+				MissingInputFields:  d.validation.MissingInputFields,
+				MissingOutputFields: d.validation.MissingOutputFields,
+			}, cfg.FixMode)
+		}
+
 		pass.Report(analysis.Diagnostic{
-			Pos:     d.pos,
-			Message: formattedMessage,
+			Pos:            d.pos,
+			Message:        formattedMessage,
+			SuggestedFixes: suggestedFixes,
 		})
 	}
 
@@ -684,6 +694,9 @@ type ConverterValidationResult struct {
 	// MissingOutputFields contains the names of exported fields in the output candidate
 	// that were not used.
 	MissingOutputFields []string
+	// Fix holds the context needed to generate suggested fixes.
+	// Nil when fix generation is not applicable (e.g., aggregating converters).
+	Fix *fixer.FixContext
 }
 
 func NewOKConverterValidationResult() *ConverterValidationResult {
@@ -937,6 +950,41 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 
 	result := NewFailedConverterValidationResult(missingIn, missingOut)
 	result.ConverterType = ConverterTypeNormal
+
+	// Build FixContext only when fix mode is enabled to avoid unnecessary AST walks.
+	if config.Get().FixMode != "" {
+		isSliceInline := inFieldVar != inVar
+		var inNamedType *types.Named
+		if inCand.fullType != nil {
+			inNamedType, _ = inCand.fullType.(*types.Named)
+		}
+
+		// Resolve outVar for unnamed results (e.g., composite literal assigned to a local variable).
+		// CollectOutputFields does this internally, but we need the resolved name for fix generation.
+		fixOutVar := outVar
+		if fixOutVar == "" {
+			fixOutVar = findLocalCandidateVariable(fn, outCand.name)
+		}
+
+		outputStyle, compLitRbrace := detectOutputStyle(fn, outCand.name)
+		lastReturnPos := findLastReturnPos(fn)
+
+		result.Fix = &fixer.FixContext{
+			InVar:         inVar,
+			OutVar:        fixOutVar,
+			InFieldVar:    inFieldVar,
+			InStruct:      inCand.structType,
+			OutStruct:     outCand.structType,
+			InNamedType:   inNamedType,
+			FnBodyLbrace:  fn.Body.Lbrace,
+			FnBodyRbrace:  fn.Body.Rbrace,
+			LastReturnPos: lastReturnPos,
+			OutputStyle:   outputStyle,
+			CompLitRbrace: compLitRbrace,
+			IsSliceInline: isSliceInline,
+		}
+	}
+
 	return result, nil
 }
 
@@ -1191,4 +1239,94 @@ func validateAggregatingConverter(
 	}
 
 	return NewFailedConverterValidationResult(missingIn, missingOut)
+}
+
+// detectOutputStyle determines how the output value is constructed in a converter function.
+// It looks for composite literals of the candidate type. If found, returns fixer.OutputStyleCompositeLit
+// and the position of the composite literal's closing brace. Otherwise returns fixer.OutputStyleDotAssignment.
+func detectOutputStyle(fn *ast.FuncDecl, candidateName string) (fixer.OutputStyle, token.Pos) {
+	var compLitRbrace token.Pos
+
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if compLitRbrace.IsValid() {
+			return false
+		}
+
+		var cl *ast.CompositeLit
+		switch stmt := n.(type) {
+		case *ast.AssignStmt:
+			for _, expr := range stmt.Rhs {
+				cl = extractCompositeLit(expr, candidateName)
+				if cl != nil {
+					break
+				}
+			}
+		case *ast.ReturnStmt:
+			for _, expr := range stmt.Results {
+				cl = extractCompositeLit(expr, candidateName)
+				if cl != nil {
+					break
+				}
+			}
+		}
+
+		if cl != nil {
+			compLitRbrace = cl.Rbrace
+			return false
+		}
+		return true
+	})
+
+	if compLitRbrace.IsValid() {
+		return fixer.OutputStyleCompositeLit, compLitRbrace
+	}
+	return fixer.OutputStyleDotAssignment, token.NoPos
+}
+
+// extractCompositeLit extracts a composite literal from an expression if it matches the candidate name.
+func extractCompositeLit(expr ast.Expr, candidateName string) *ast.CompositeLit {
+	var cl *ast.CompositeLit
+
+	switch x := expr.(type) {
+	case *ast.CompositeLit:
+		cl = x
+	case *ast.UnaryExpr:
+		if x.Op == token.AND {
+			if lit, ok := x.X.(*ast.CompositeLit); ok {
+				cl = lit
+			}
+		}
+	}
+
+	if cl == nil {
+		return nil
+	}
+
+	var typeName string
+	switch t := cl.Type.(type) {
+	case *ast.Ident:
+		typeName = t.Name
+	case *ast.SelectorExpr:
+		typeName = t.Sel.Name
+	}
+
+	if strings.EqualFold(typeName, candidateName) {
+		return cl
+	}
+	return nil
+}
+
+// findLastReturnPos finds the position of the last top-level return statement
+// in a function body. Returns token.NoPos if no return is found.
+func findLastReturnPos(fn *ast.FuncDecl) token.Pos {
+	if fn.Body == nil || len(fn.Body.List) == 0 {
+		return token.NoPos
+	}
+	// Walk top-level statements in reverse to find the last return.
+	for i := len(fn.Body.List) - 1; i >= 0; i-- {
+		if ret, ok := fn.Body.List[i].(*ast.ReturnStmt); ok {
+			return ret.Pos()
+		}
+	}
+	return token.NoPos
 }

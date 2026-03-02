@@ -226,6 +226,67 @@ func TestSliceInlineMapping(t *testing.T) {
 	})
 }
 
+func TestFixSafe(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.FixMode = "safe"
+	runAnalysisTestWithConfig(t, "converters/14-fix-safe", cfg,
+		DiagnosticAssertion{
+			FunctionName: "ConvertUserToDTO_MissingFields",
+			FieldsMissing: []string{
+				"user.Email",
+				"user.Phone",
+				"result.Email",
+				"result.Phone",
+			},
+		},
+	)
+}
+
+func TestFixSafe_HasSuggestedFixes(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.FixMode = "safe"
+
+	diagnostics := runRawAnalysisTestWithConfig(t, "converters/14-fix-safe", &cfg)
+	for _, diag := range diagnostics {
+		if len(diag.SuggestedFixes) == 0 {
+			t.Error("expected SuggestedFixes to be populated in safe mode")
+		}
+		if len(diag.SuggestedFixes) != 1 {
+			t.Errorf("expected exactly 1 suggested fix in safe mode, got %d", len(diag.SuggestedFixes))
+		}
+		for _, fix := range diag.SuggestedFixes {
+			if len(fix.TextEdits) == 0 {
+				t.Error("expected TextEdits in suggested fix")
+			}
+		}
+	}
+}
+
+func TestFixSmart_HasSuggestedFixes(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.FixMode = "smart"
+
+	diagnostics := runRawAnalysisTestWithConfig(t, "converters/15-fix-smart", &cfg)
+	for _, diag := range diagnostics {
+		if len(diag.SuggestedFixes) == 0 {
+			t.Error("expected SuggestedFixes to be populated in smart mode")
+		}
+		// Smart mode should have 2 fixes: smart first, safe second
+		if len(diag.SuggestedFixes) != 2 {
+			t.Errorf("expected 2 suggested fixes in smart mode, got %d", len(diag.SuggestedFixes))
+		}
+	}
+}
+
+func TestFixDisabled_NoSuggestedFixes(t *testing.T) {
+	diagnostics := runRawAnalysisTestWithConfig(t, "converters/14-fix-safe", nil)
+	for _, diag := range diagnostics {
+		if len(diag.SuggestedFixes) != 0 {
+			t.Error("expected no SuggestedFixes when fix mode is disabled")
+		}
+	}
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files

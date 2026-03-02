@@ -119,6 +119,40 @@ func PrintDiagnostics(t *testing.T, diagnostics []*analysis.Diagnostic) {
 	}
 }
 
+// runRawAnalysisTestWithConfig runs the lostfield analyzer and returns raw diagnostics
+// for custom assertions (e.g., checking SuggestedFixes). If cfg is nil, uses default config.
+func runRawAnalysisTestWithConfig(t *testing.T, pkgPath string, cfg *config.Config) []analysis.Diagnostic {
+	t.Helper()
+
+	testdata := analysistest.TestData()
+
+	var run func(*analysis.Pass) (any, error)
+	if cfg != nil {
+		run = func(pass *analysis.Pass) (any, error) {
+			originalCfg := config.Get()
+			config.SetConfig(*cfg)
+			defer config.SetConfig(originalCfg)
+			return lf.Run(pass)
+		}
+	} else {
+		run = lf.Run
+	}
+
+	analyzer := &analysis.Analyzer{
+		Name: "lostfield",
+		Doc:  "reports all inconsistent converter functions: finds lost fields",
+		Run:  run,
+	}
+
+	results := analysistest.Run(t, testdata, analyzer, pkgPath)
+
+	var diagnostics []analysis.Diagnostic
+	for _, result := range results {
+		diagnostics = append(diagnostics, result.Diagnostics...)
+	}
+	return diagnostics
+}
+
 // runAnalysisTestWithConfig runs the lostfield analyzer on a test package with a custom config
 // and validates against assertions.
 func runAnalysisTestWithConfig(
