@@ -24,7 +24,7 @@ func (c *prettyFormatter) Format(ctx *FormatContext) string {
 	message := c.formatValidationMessage(ctx.Validation, ctx.Verbose)
 
 	var buf bytes.Buffer
-	c.prettyPrint(&buf, ctx.Filename, ctx.Fn, ctx.Pass, message, ctx.Validation.ConverterType)
+	c.prettyPrint(&buf, ctx.Filename, ctx.Fn, ctx.Pass, message, ctx.Validation.ConverterType, ctx.Index, ctx.Total)
 	return buf.String()
 }
 
@@ -104,6 +104,7 @@ func (c *prettyFormatter) prettyPrint(
 	pass *analysis.Pass,
 	message string,
 	converterType string,
+	index, total int,
 ) {
 	pos := pass.Fset.Position(fn.Name.Pos())
 
@@ -201,18 +202,19 @@ func (c *prettyFormatter) prettyPrint(
 	// Add blank line with just the pipe
 	fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", blue("|"))
 
+	// Build numbering label for multi-diagnostic runs
+	var numLabel string
+	if total > 1 {
+		numLabel = fmt.Sprintf(" [%d/%d]", index, total)
+	}
+
 	// Handle multi-line messages (the note section)
 	messageLines := strings.Split(message, "\n")
 	for i, line := range messageLines {
 		if line != "" {
 			if i == 0 && strings.HasPrefix(line, "=") {
-				// Color the '=' in blue, rest in red
-				eqIndex := strings.Index(line, "=")
-				if eqIndex >= 0 {
-					fmt.Fprintf(w, "%*s %s%s\n", gutterWidth, "", blue("="), red(line[1:]))
-				} else {
-					fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", red(line))
-				}
+				// Color the '=' in blue, numbering in yellow, rest in red
+				fmt.Fprintf(w, "%*s %s%s%s\n", gutterWidth, "", blue("="), yellow(numLabel), red(line[1:]))
 			} else {
 				fmt.Fprintf(w, "%*s %s\n", gutterWidth, "", red(line))
 			}

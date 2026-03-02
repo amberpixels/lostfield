@@ -28,6 +28,8 @@ type FormatContext struct {
 	Pass       *analysis.Pass
 	Validation *ConverterValidationResult
 	Verbose    bool
+	Index      int // 1-based index of this diagnostic
+	Total      int // total number of diagnostics
 }
 
 // Formatter interface defines how to format diagnostic messages.

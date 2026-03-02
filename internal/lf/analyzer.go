@@ -55,13 +55,23 @@ func isGeneratedFile(file *ast.File) bool {
 	return false
 }
 
+// pendingDiagnostic holds data for a diagnostic that will be reported after all files are processed.
+type pendingDiagnostic struct {
+	pos        token.Pos
+	filename   string
+	fn         *ast.FuncDecl
+	validation *ConverterValidationResult
+}
+
 // Run function used in analysis.Analyzer.
 func Run(pass *analysis.Pass) (any, error) {
-	warningsTotal := 0
 	filesTotal := 0
-	filesWarned := 0
+	filesWarned := make(map[string]struct{})
 
 	cfg := config.Get()
+
+	// Collect all diagnostics first so we can number them.
+	var pending []pendingDiagnostic
 
 	for _, file := range pass.Files {
 		// Get the filename from the file position.
@@ -80,66 +90,73 @@ func Run(pass *analysis.Pass) (any, error) {
 		filesTotal++
 
 		// Walk the AST and look for function declarations.
-		var fileContainsWarnings bool
 		ast.Inspect(file, func(n ast.Node) bool {
-			if fn, ok := n.(*ast.FuncDecl); ok {
-				if !IsPossibleConverter(fn, pass) {
-					return true
-				}
-
-				validationResult, err := ValidateConverter(fn, pass)
-				if err != nil {
-					// fmt.Println("--> Validation error, ignoring ", fn.Name.Name)
-					return true
-				}
-
-				if validationResult.Valid {
-					return true
-				}
-
-				// Format the diagnostic message using the configured formatter.
-				// Convert the local validation result to the formatter package's type.
-				fmt := formatter.New(cfg.Format)
-				formattedMessage := fmt.Format(&formatter.FormatContext{
-					Filename: filename,
-					Fn:       fn,
-					Pass:     pass,
-					Verbose:  cfg.Verbose,
-					Validation: &formatter.ConverterValidationResult{
-						Valid:               validationResult.Valid,
-						ConverterType:       string(validationResult.ConverterType),
-						MissingInputFields:  validationResult.MissingInputFields,
-						MissingOutputFields: validationResult.MissingOutputFields,
-					},
-				})
-
-				// Now report the diagnostic using pass.Report.
-				pass.Report(analysis.Diagnostic{
-					Pos:     fn.Name.Pos(),
-					Message: formattedMessage,
-				})
-
-				warningsTotal++
-				fileContainsWarnings = true
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok {
+				return true
 			}
+
+			if !IsPossibleConverter(fn, pass) {
+				return true
+			}
+
+			validationResult, err := ValidateConverter(fn, pass)
+			if err != nil {
+				return true
+			}
+
+			if validationResult.Valid {
+				return true
+			}
+
+			pending = append(pending, pendingDiagnostic{
+				pos:        fn.Name.Pos(),
+				filename:   filename,
+				fn:         fn,
+				validation: validationResult,
+			})
+			filesWarned[filename] = struct{}{}
+
 			return true
 		})
-		if fileContainsWarnings {
-			filesWarned++
-		}
+	}
+
+	// Format and report all diagnostics with numbering.
+	total := len(pending)
+	fmtr := formatter.New(cfg.Format)
+	for i, d := range pending {
+		formattedMessage := fmtr.Format(&formatter.FormatContext{
+			Filename: d.filename,
+			Fn:       d.fn,
+			Pass:     pass,
+			Verbose:  cfg.Verbose,
+			Index:    i + 1,
+			Total:    total,
+			Validation: &formatter.ConverterValidationResult{
+				Valid:               d.validation.Valid,
+				ConverterType:       string(d.validation.ConverterType),
+				MissingInputFields:  d.validation.MissingInputFields,
+				MissingOutputFields: d.validation.MissingOutputFields,
+			},
+		})
+
+		pass.Report(analysis.Diagnostic{
+			Pos:     d.pos,
+			Message: formattedMessage,
+		})
 	}
 
 	// At the end of processing all files, print the total number of warnings.
 	// Only print if verbose mode is enabled.
 	if cfg.Verbose {
 		// Write to stderr because stdout is used by go vet's JSON protocol.
-		if warningsTotal > 0 {
+		if total > 0 {
 			fmt.Fprintf(
 				os.Stderr,
 				"\nFiles total analyzed: %d. Warnings: %d caught in %d files\n",
 				filesTotal,
-				warningsTotal,
-				filesWarned,
+				total,
+				len(filesWarned),
 			)
 		} else {
 			fmt.Fprintf(os.Stderr, "\nFiles total analyzed: %d. Warnings: 0\n", filesTotal)
@@ -873,11 +890,20 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 	}
 
 	// Collect field usages for the input candidate variable.
-	fieldsUsedModelIn := CollectUsedFields(fn.Body, inVar)
-	methodsUsedModelIn := CollectUsedMethods(fn.Body, inVar)
+	// For slice-to-slice converters with inline mapping, fields are accessed via the
+	// loop variable (e.g., "for _, item := range items { ... item.Field ... }"),
+	// not the slice parameter itself. Use the loop variable for field collection.
+	inFieldVar := inVar
+	if inCand.containerType == ContainerSlice && outCand.containerType == ContainerSlice {
+		if loopVar := findLoopVariable(fn, inVar); loopVar != "" {
+			inFieldVar = loopVar
+		}
+	}
+	fieldsUsedModelIn := CollectUsedFields(fn.Body, inFieldVar)
+	methodsUsedModelIn := CollectUsedMethods(fn.Body, inFieldVar)
 	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, methodsUsedModelIn)
 	for i, m := range missingIn {
-		missingIn[i] = inVar + "." + m
+		missingIn[i] = inFieldVar + "." + m
 	}
 
 	// Collect field usages for the output candidate.

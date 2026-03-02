@@ -24,11 +24,17 @@ func (d *defaultFormatter) Format(ctx *FormatContext) string {
 	)
 	missingFields = append(missingFields, validation.MissingOutputFields...)
 
-	// Build a standard go vet-style message
-	if len(missingFields) == 0 {
-		return fmt.Sprintf("%s: incomplete converter", fnName)
+	// Build numbering prefix if total > 1
+	var prefix string
+	if ctx.Total > 1 {
+		prefix = fmt.Sprintf("[%d/%d] ", ctx.Index, ctx.Total)
 	}
 
-	return fmt.Sprintf("%s: incomplete converter with missing fields: %s",
-		fnName, strings.Join(missingFields, ", "))
+	// Build a standard go vet-style message
+	if len(missingFields) == 0 {
+		return fmt.Sprintf("%s%s: incomplete converter", prefix, fnName)
+	}
+
+	return fmt.Sprintf("%s%s: incomplete converter with missing fields: %s",
+		prefix, fnName, strings.Join(missingFields, ", "))
 }

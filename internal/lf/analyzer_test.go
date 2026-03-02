@@ -208,6 +208,24 @@ func TestNestedFields(t *testing.T) {
 	})
 }
 
+func TestSliceInlineMapping(t *testing.T) {
+	t.Run("13-slice-inline-mapping:clean", func(t *testing.T) {
+		// Slice-to-slice converters with inline composite literal mapping
+		// should NOT produce diagnostics when all fields are properly mapped
+		runAnalysisTest(t, "converters/13-slice-inline-mapping/clean")
+	})
+
+	t.Run("13-slice-inline-mapping:dirty", func(t *testing.T) {
+		// Slice-to-slice converter with missing Weight field
+		runAnalysisTest(t, "converters/13-slice-inline-mapping/dirty",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertPetInfosToDTO_MissingWeight",
+				FieldsMissing: []string{"rec.Weight", "Weight"},
+			},
+		)
+	})
+}
+
 // TestIsPossibleConverter tests the IsPossibleConverter function with various scenarios.
 func TestIsPossibleConverter(t *testing.T) {
 	// Parse the test files
