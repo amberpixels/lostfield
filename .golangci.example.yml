@@ -1,140 +1,102 @@
-# Example golangci-lint configuration for lostfield linter
-# Copy this file to .golangci.yml and adjust settings as needed
+# Example golangci-lint configuration for the lostfield linter.
+#
+# lostfield integrates with golangci-lint through the module plugin system:
+# build a custom golangci-lint binary once (see .custom-gcl.example.yml),
+# then enable and configure lostfield here like any other linter.
+#
+# All settings are optional - omitted keys keep their defaults.
 
 version: "2"
 
 linters:
   enable:
     - lostfield
+  settings:
+    custom:
+      lostfield:
+        type: "module"
+        description: "Detects incomplete struct converter functions (lost fields)"
+        settings:
+          # Check method receivers in addition to plain functions.
+          # Default: true
+          include-methods: true
 
-linters-settings:
-  lostfield:
-    # Check method receivers in addition to plain functions
-    # Default: true
-    # When enabled, the linter will also check methods (functions with receivers)
-    # Example: func (s *Service) ConvertUserToDTO(user User) UserDTO
-    include-methods: true
+          # Allow Get* methods as a substitute for direct field access.
+          # Default: true
+          allow-getters: true
 
-    # Allow Get* methods as a substitute for direct field access
-    # Default: true
-    # When enabled, fields accessed via getter methods (e.g., user.GetName())
-    # are considered "used" even if the field itself isn't directly accessed
-    allow-getters: true
+          # Detect slice->non-slice aggregating converters.
+          # Default: true
+          allow-aggregators: true
 
-    # Enable detection of slice->non-slice aggregating converters
-    # Default: true
-    # When enabled, detects functions that take a slice and produce a struct
-    # containing the converted slice (e.g., []Item -> ItemsResponse{Items: [...]})
-    allow-aggregators: true
+          # Regex patterns for field names to ignore. Matched (unanchored)
+          # against both the leaf field name and the full nested path
+          # (e.g. "User.Role.CreatedAt"). Anchor when you need exactness.
+          # Typical for DB-managed fields:
+          # Default: []
+          exclude-fields:
+            - "^ID$"
+            - "CreatedAt"
+            - "UpdatedAt"
+            - "DeletedAt"
 
-    # Comma-separated regex patterns for field names to ignore
-    # Default: "" (empty)
-    # Common patterns to ignore:
-    #   - Timestamps: CreatedAt, UpdatedAt, DeletedAt
-    #   - IDs that are auto-generated: .*ID
-    #   - Audit fields: .*At, .*By
-    # Example: "CreatedAt,UpdatedAt,DeletedAt,.*ID"
-    exclude-fields: ""
+          # Glob patterns for function/method names to exclude from detection.
+          # Default: []
+          exclude-converters: []
+          # e.g.: ["Get*", "Map*", "*Helper"]
 
-    # Comma-separated glob patterns for function/method names to exclude from converter detection
-    # Default: "" (empty)
-    # Supports wildcards: * matches any sequence of characters, ? matches a single character
-    # Example: "Get*,Map*,to*,*Helper"
-    exclude-converters: ""
+          # Glob patterns for function/method names to analyze exclusively
+          # (inverse of exclude-converters). Default: []
+          only-converters: []
 
-    # Comma-separated glob patterns for function/method names to include (only matching converters are analyzed)
-    # Default: "" (empty)
-    # When non-empty, only converters matching at least one pattern are analyzed (inverse of exclude-converters)
-    # Useful for targeting specific converters during development
-    # Example: "CuratorPurchase,Convert*"
-    only-converters: ""
+          # Glob patterns for file paths to exclude.
+          # Default: ["*_test.go", "*.pb.go", "*/vendor/*"]
+          exclude-files:
+            - "*_test.go"
+            - "*.pb.go"
+            - "*/vendor/*"
 
-    # Comma-separated glob patterns for file paths to exclude from analysis
-    # Default: "*_test.go,*.pb.go,*/vendor/*"
-    # Supports wildcards: * matches any sequence of characters, ? matches a single character
-    # Patterns are matched against the full file path
-    exclude-files: "*_test.go,*.pb.go,*/vendor/*"
+          # Minimum type-name similarity (0.0-1.0) for a function to count as a
+          # converter. 0.0 = substring matching (default). Recommended: 0.6 -
+          # it keeps genuine Model->ModelDTO pairs while dropping functions that
+          # merely share a name fragment (e.g. Message vs MessageNewParams).
+          min-similarity: 0.6
 
-    # Minimum type name similarity ratio (0.0-1.0)
-    # Default: 0.0 (substring matching)
-    # 0.0 = use substring matching (e.g., "User" matches "UserDTO")
-    # Higher values require more similar type names
-    min-similarity: 0.0
+          # Struct tags marking fields to skip. Entries are either a bare tag
+          # key ("internal" - any value matches) or key:"value" form.
+          # Default: []
+          ignore-tags:
+            - 'lostfield:"ignore"'
 
-    # Comma-separated struct tags that mark fields to ignore
-    # Default: "" (empty)
-    # Fields with these tags will be ignored by the linter
-    # Example: 'lostfield:"ignore"'
-    ignore-tags: ""
+          # Include generated files in analysis. Default: false
+          include-generated: false
 
-    # Include generated code files in analysis
-    # Default: false
-    # When false, files with "DO NOT EDIT", "auto-generated", etc. markers are skipped
-    include-generated: false
+          # Validate deprecated fields too. By default fields whose doc comment
+          # contains "Deprecated:" may be legitimately skipped by converters.
+          # Note: deprecation is only detectable for types defined in the
+          # analyzed package itself (doc comments of imported types are not
+          # available to the analysis).
+          # Default: false
+          include-deprecated: false
 
-    # Include deprecated fields in validation
-    # Default: false
-    # When false, fields marked with "Deprecated:" in their doc comments are ignored
-    include-deprecated: false
+          # Validate unexported (private) fields. Only meaningful for
+          # converters living in the same package as the models.
+          # Default: false
+          include-private-fields: false
 
-    # Validate unexported (private) fields in converters
-    # Default: false
-    # When false, lowercase-starting fields (e.g., id, internalCache) are skipped
-    # Mostly useful for converters within the same package
-    include-private-fields: false
+          # Non-marshallable field types (func, chan, ...):
+          #   ignore   - skip entirely
+          #   adaptive - validate only when present in both input AND output
+          #   strict   - treat like normal fields
+          # Default: "adaptive"
+          non-marshallable-fields: "adaptive"
 
-    # How to handle non-marshallable field types (func, chan, etc.)
-    # Default: "adaptive"
-    # Options:
-    #   - "ignore":   Skip non-marshallable fields entirely
-    #   - "adaptive": Validate only if present in both input AND output types
-    #   - "strict":   Treat non-marshallable fields like normal fields
-    non-marshallable-fields: "adaptive"
+          # Which fields must be handled:
+          #   strict       - all fields from both input and output
+          #   intersection - only fields present in both
+          # Default: "strict"
+          field-validation-mode: "strict"
 
-    # Field validation mode
-    # Default: "strict"
-    # Options:
-    #   - "strict":       All fields from both input and output types must be handled
-    #   - "intersection": Only fields present in both input and output must be handled
-    field-validation-mode: "strict"
-
-    # Enable verbose output
-    # Default: false
-    # When enabled with pretty format, shows all missing fields instead of truncating to 3 per side
-    verbose: false
-
-    # Output format for diagnostics
-    # Default: "default"
-    # Options:
-    #   - "default": Standard go vet format
-    #   - "pretty":  Rust-like pretty format with colors
-    # Note: When using with golangci-lint, the output format is controlled by
-    # golangci-lint's -out-format flag, and the linter uses "default" automatically
-    format: "default"
-
-# Example usage scenarios:
-
-# Scenario 1: Strict checking (check everything)
-# linters-settings:
-#   lostfield:
-#     include-methods: true
-#     allow-getters: false
-#     field-validation-mode: "strict"
-#     non-marshallable-fields: "strict"
-#     include-private-fields: true
-
-# Scenario 2: Lenient checking (ignore common patterns)
-# linters-settings:
-#   lostfield:
-#     include-methods: true
-#     allow-getters: true
-#     exclude-fields: "CreatedAt,UpdatedAt,DeletedAt,.*ID,.*At"
-#     field-validation-mode: "intersection"
-#     non-marshallable-fields: "ignore"
-
-# Scenario 3: Focus on converters only (skip helpers and test-like functions)
-# linters-settings:
-#   lostfield:
-#     include-methods: true
-#     allow-getters: true
-#     exclude-converters: "Get*,Map*,*Helper"
+          # Note: the `format` setting is ignored under golangci-lint (the
+          # single-line default format is forced); `fix-mode` suggested fixes
+          # are available via `go vet -vettool` with the -fix flag.

@@ -1,0 +1,17 @@
+# Example .custom-gcl.yml for building a custom golangci-lint binary
+# that includes the lostfield linter (module plugin system).
+#
+# Usage:
+#   1. Copy this file to your project as .custom-gcl.yml
+#   2. Run: golangci-lint custom
+#   3. Use the produced binary (./custom-gcl by default) instead of golangci-lint
+#
+# See https://golangci-lint.run/plugins/module-plugins/ for details.
+
+version: v2.12.2
+name: custom-gcl
+destination: .
+
+plugins:
+  - module: 'github.com/amberpixels/lostfield'
+    version: latest # or pin a released version, e.g. v0.1.0
