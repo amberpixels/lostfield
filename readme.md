@@ -1,21 +1,76 @@
-# LostField
+<p align="center">
+  <img src="logo.svg" alt="LostField" width="240">
+</p>
 
-A Go linter that ensures converter functions use all fields from both input and output structs, preventing "leaky" conversions where fields are accidentally omitted.
+<div align="center">
 
-## What it does
+### No field left behind.
 
-`lostfield` analyzes converter functions (functions that transform one struct type to another) and reports when fields are missing from either:
-- **Input fields** - fields that should be read but aren't
-- **Output fields** - fields that should be set but aren't
+A Go linter that catches incomplete struct converters.
 
-This helps catch bugs where new fields are added to structs but converter functions aren't updated accordingly.
+[![Go Reference](https://pkg.go.dev/badge/github.com/amberpixels/lostfield.svg)](https://pkg.go.dev/github.com/amberpixels/lostfield)
+[![CI](https://github.com/amberpixels/lostfield/actions/workflows/ci.yml/badge.svg)](https://github.com/amberpixels/lostfield/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/amberpixels/lostfield)](https://goreportcard.com/report/github.com/amberpixels/lostfield)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/amberpixels/lostfield)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-It shines in codebases where mapping code is hand-written and concentrated in one layer (e.g. a `dtos/` package converting between domain models and wire shapes): scope the linter to that layer and every "added a field, forgot the converter" bug is caught at lint time.
+</div>
 
-## Installation
+---
+
+`lostfield` analyzes converter functions (functions that transform one struct
+type into another) and reports fields that leak out of the conversion:
+
+- **Input fields** that should be read but aren't
+- **Output fields** that should be set but aren't
+
+It catches the classic bug: a field is added to a model, but the converters
+are never updated - and the API silently ships incomplete data.
+
+```go
+func ConvertUserToDTO(user User) UserDTO {
+    return UserDTO{
+        ID:       user.ID,
+        Username: user.Username,
+        // Missing: Email  <- lostfield reports this
+    }
+}
+```
+
+> [!NOTE]
+> lostfield is in **early development** (pre-1.0). It's already used in real
+> projects, but flags and defaults may still change before v1.0. Questions,
+> ideas, and feedback are very welcome - see [Feedback](#feedback).
+
+## Contents
+
+- [Install](#install)
+- [Usage](#usage)
+  - [Standalone (go vet)](#standalone-go-vet)
+  - [With golangci-lint (module plugin)](#with-golangci-lint-module-plugin)
+  - [Programmatic](#programmatic)
+- [Where it fits](#where-it-fits)
+- [Configuration](#configuration)
+  - [Command-line flags](#command-line-flags)
+  - [How converter detection works](#how-converter-detection-works)
+  - [Deprecated fields](#deprecated-fields)
+  - [Examples](#examples)
+- [Output](#output)
+- [Requirements](#requirements)
+- [AI disclosure](#ai-disclosure)
+- [Feedback](#feedback)
+- [License](#license)
+
+## Install
 
 ```bash
 go install github.com/amberpixels/lostfield/cmd/lostfield@latest
+```
+
+Or pin it per-project with the Go 1.24+ tool directive:
+
+```bash
+go get -tool github.com/amberpixels/lostfield/cmd/lostfield@latest
 ```
 
 ## Usage
@@ -29,15 +84,20 @@ go vet -vettool=$(which lostfield) ./...
 go vet -vettool=$(which lostfield) \
     -lostfield.exclude-fields='^ID$,CreatedAt,UpdatedAt,DeletedAt' \
     ./internal/dtos/...
+
+# With the tool directive, resolve the pinned binary via `go tool -n`
+go vet -vettool=$(go tool -n lostfield) ./internal/dtos/...
 ```
 
-> Note: `go vet` caches results per package+flags. Environment-only changes
-> (such as `NO_COLOR`) don't invalidate the cache; touch a file or change a
-> flag to force a re-run.
+> [!TIP]
+> `go vet` caches results per package+flags. Environment-only changes (such as
+> `NO_COLOR`) don't invalidate the cache; touch a file or change a flag to
+> force a re-run.
 
 ### With golangci-lint (module plugin)
 
-`lostfield` supports golangci-lint's [module plugin system](https://golangci-lint.run/plugins/module-plugins/): you build a custom golangci-lint binary once, then use lostfield like any other linter.
+`lostfield` supports golangci-lint's [module plugin system](https://golangci-lint.run/plugins/module-plugins/):
+you build a custom golangci-lint binary once, then use lostfield like any other linter.
 
 1. Add a `.custom-gcl.yml` next to your `.golangci.yml` (see [.custom-gcl.example.yml](.custom-gcl.example.yml)):
 
@@ -72,13 +132,15 @@ linters:
           exclude-fields: ["^ID$", "CreatedAt", "UpdatedAt", "DeletedAt"]
 ```
 
-See [.golangci.example.yml](.golangci.example.yml) for all settings with documentation. Unknown setting keys fail the build (typo protection), and omitted keys keep their defaults.
+See [.golangci.example.yml](.golangci.example.yml) for all settings with
+documentation. Unknown setting keys fail the build (typo protection), and
+omitted keys keep their defaults.
 
 Upstream inclusion in golangci-lint (no custom binary needed) is planned.
 
-### Programmatic (custom vet tools, multicheckers)
+### Programmatic
 
-The analyzer is importable:
+The analyzer is importable for custom vet tools and multicheckers:
 
 ```go
 import "github.com/amberpixels/lostfield"
@@ -88,15 +150,33 @@ cfg.ExcludeFieldPatterns = []string{"CreatedAt", "UpdatedAt"}
 analyzer := lostfield.NewAnalyzer(cfg)
 ```
 
+## Where it fits
+
+lostfield shines in codebases where mapping code is hand-written and
+concentrated in one layer - for example a `dtos/` package converting between
+domain models and wire shapes, as in the [DCBA](https://github.com/amberpixels/dcba)
+layering convention. Scope the linter to that layer and every
+"added a field, forgot the converter" bug is caught at lint time:
+
+```bash
+go vet -vettool=$(go tool -n lostfield) \
+    -lostfield.exclude-fields='^ID$,CreatedAt,UpdatedAt,DeletedAt' \
+    -lostfield.ignore-tags='lostfield:"ignore"' \
+    ./internal/dtos/...
+```
+
+DB-managed fields (primary keys, timestamps) are excluded by name; foreign-key
+fields set by the ORM can be tagged `lostfield:"ignore"` at the model instead.
+
 ## Configuration
 
-### Command-line Flags
+### Command-line flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `-include-methods` | bool | `true` | Check method receivers in addition to plain functions |
 | `-allow-getters` | bool | `true` | Allow Get* methods as substitute for direct field access |
-| `-allow-aggregators` | bool | `true` | Enable detection of slice→non-slice aggregating converters |
+| `-allow-aggregators` | bool | `true` | Enable detection of slice-to-non-slice aggregating converters |
 | `-exclude-fields` | string | `""` | Comma-separated regex patterns for field names to ignore (matched against leaf name and full nested path) |
 | `-exclude-converters` | string | `""` | Comma-separated glob patterns for function/method names to exclude (e.g., `Get*,Map*`) |
 | `-only-converters` | string | `""` | Comma-separated glob patterns for function/method names to include (only matching converters are analyzed) |
@@ -112,22 +192,37 @@ analyzer := lostfield.NewAnalyzer(cfg)
 | `-format` | string | `"default"` | Output format: `default` (standard go vet), `pretty` (Rust-like, human-only) |
 | `-verbose` | bool | `false` | Verbose output (with `-format=pretty`, shows all fields instead of truncating) |
 
-Invalid values for enum-like flags (`-format`, `-fix-mode`, `-non-marshallable-fields`, `-field-validation-mode`), out-of-range `-min-similarity`, and non-compiling `-exclude-fields` regexes are rejected at startup rather than silently ignored.
+Invalid values for enum-like flags (`-format`, `-fix-mode`,
+`-non-marshallable-fields`, `-field-validation-mode`), out-of-range
+`-min-similarity`, and non-compiling `-exclude-fields` regexes are rejected at
+startup rather than silently ignored.
 
 ### How converter detection works
 
-A function is considered a converter when it takes a struct (or pointer/slice/map of structs) and returns a different struct whose type name is *similar* to the input's:
+A function is considered a converter when it takes a struct (or
+pointer/slice/map of structs) and returns a different struct whose type name is
+*similar* to the input's:
 
-- **`min-similarity: 0` (default)**: names match when one contains the other, case-insensitively (`User` → `UserDTO`). Shared fragments shorter than 3 characters are ignored.
-- **`min-similarity: > 0`**: names match when their Sørensen–Dice bigram similarity reaches the threshold. **Recommended: `0.6`** — it keeps genuine pairs like `UserModel` → `UserModelDTO` while dropping incidental pairs like `Message` → `MessageNewParams` (an API params struct, not a conversion).
+- **`min-similarity: 0` (default)**: names match when one contains the other,
+  case-insensitively (`User` -> `UserDTO`). Shared fragments shorter than
+  3 characters are ignored.
+- **`min-similarity: > 0`**: names match when their Sørensen-Dice bigram
+  similarity reaches the threshold. **Recommended: `0.6`** - it keeps genuine
+  pairs like `UserModel` -> `UserModelDTO` while dropping incidental pairs like
+  `Message` -> `MessageNewParams` (an API params struct, not a conversion).
 
-Constructors (functions starting with `New`) are never treated as converters. Use `-exclude-converters`/`-only-converters` for name-based control.
+Constructors (functions starting with `New`) are never treated as converters.
+Use `-exclude-converters`/`-only-converters` for name-based control.
 
 ### Deprecated fields
 
-Fields whose doc comment contains `Deprecated:` are excluded from validation by default — a converter may legitimately stop copying them. Pass `-include-deprecated` to validate them like normal fields.
+Fields whose doc comment contains `Deprecated:` are excluded from validation by
+default - a converter may legitimately stop copying them. Pass
+`-include-deprecated` to validate them like normal fields.
 
-Limitation: deprecation is only detectable when the struct is defined in the package under analysis; doc comments of imported types are not available to a `go/analysis` pass.
+Limitation: deprecation is only detectable when the struct is defined in the
+package under analysis; doc comments of imported types are not available to a
+`go/analysis` pass.
 
 ### Examples
 
@@ -163,46 +258,16 @@ lostfield -only-converters="CuratorPurchase" -format=pretty -verbose ./...
 go vet -vettool=$(which lostfield) -lostfield.fix-mode=smart -fix ./...
 ```
 
-**Note:** The `-format=pretty` output embeds colors and multi-line source excerpts and is meant for humans; machine consumers (`go vet -json`, editors, golangci-lint) should use the `default` format (golangci-lint enforces this automatically). Pretty output respects [`NO_COLOR`](https://no-color.org).
+## Output
 
-## Example
-
-Given these types:
-
-```go
-type User struct {
-    ID        int64
-    Username  string
-    Email     string
-    CreatedAt time.Time
-}
-
-type UserDTO struct {
-    ID       int64
-    Username string
-    Email    string
-}
-```
-
-This converter would trigger a warning:
-
-```go
-func ConvertUserToDTO(user User) UserDTO {
-    return UserDTO{
-        ID:       user.ID,
-        Username: user.Username,
-        // Missing: Email
-    }
-}
-```
-
-**Output (default format):**
+**Default format** (single-line, machine-friendly - used by `go vet -json`,
+editors, and golangci-lint):
 
 ```
 converters/readmeExample/converter.go:3:6: ConvertUserToDTO: incomplete converter with missing fields: user.Email, user.CreatedAt, Email
 ```
 
-**Output (pretty format with `-format=pretty`):**
+**Pretty format** (`-format=pretty`, human-only; respects [`NO_COLOR`](https://no-color.org)):
 
 ```
    |
@@ -215,15 +280,31 @@ converters/readmeExample/converter.go:3:6: ConvertUserToDTO: incomplete converte
      ??             → Email
 ```
 
-## Contributing
+## Requirements
 
-Contributions are welcome!
+- Go 1.26+
 
-```bash
-just test   # run tests
-just lint   # run golangci-lint
-just run    # run lostfield against a target path
-```
+## AI disclosure
+
+lostfield's code is written with heavy AI assistance - and that's by design.
+But the AI is a tool here, not the author of record:
+
+- **Every architectural decision is made by a human.** The detection heuristics,
+  the config surface, the trade-offs - those are deliberate human choices, not
+  whatever a model happened to produce.
+- **Every line of code is read and reviewed by a human before it's pushed.**
+  Nothing lands in this repository unread.
+- **The code is written AI-first.** It's deliberately optimized to be easy for
+  AI to read, grep, update, and extend - not primarily for human ergonomics.
+  Clear, greppable names and consistent structure win over cleverness.
+
+Responsibility for the code is human. 🤖🤝🧑
+
+## Feedback
+
+Questions, ideas, bug reports, and feedback are genuinely welcome - please
+[open an issue](https://github.com/amberpixels/lostfield/issues). It's
+MIT-licensed, so you're also free to fork and adapt it for your own work.
 
 ## License
 
