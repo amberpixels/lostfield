@@ -141,6 +141,17 @@ func TestSliceToNonSlice(t *testing.T) {
 	runAnalysisTest(t, "converters/8-slice-to-non-slice")
 }
 
+func TestAggregatingConverter(t *testing.T) {
+	// An aggregating converter (slice -> non-slice with a slice field) that drops
+	// element fields on both sides is reported with the Categories[].Field notation.
+	runAnalysisTest(t, "converters/19-aggregating",
+		DiagnosticAssertion{
+			FunctionName:  "AggregateDetailsIncomplete",
+			FieldsMissing: []string{"detail.Sections", "Categories[].Sections"},
+		},
+	)
+}
+
 func TestAggregatingConvertersEnabled(t *testing.T) {
 	// Aggregating converters (slice -> non-slice with valid field mapping)
 	// With proper field mapping, should pass validation. Expect 0 diagnostics
@@ -148,8 +159,70 @@ func TestAggregatingConvertersEnabled(t *testing.T) {
 }
 
 func TestDeprecatedFields(t *testing.T) {
-	// Converter handles all fields including the deprecated OldName field
-	runAnalysisTest(t, "converters/9-deprecated/clean")
+	t.Run("default: deprecated fields are excluded from validation", func(t *testing.T) {
+		// Skipping the deprecated OldName field is fine by default;
+		// copying it anyway is also fine.
+		runAnalysisTest(t, "converters/9-deprecated/clean")
+	})
+
+	t.Run("include-deprecated: deprecated fields are validated", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.IncludeDeprecated = true
+		runAnalysisTestWithConfig(t, "converters/9-deprecated/dirty", cfg,
+			DiagnosticAssertion{
+				FunctionName:  "ConvertEventToReplySkippingDeprecated",
+				FieldsMissing: []string{"model.OldName", "OldName"},
+			},
+		)
+	})
+}
+
+func TestExcludeFields(t *testing.T) {
+	t.Run("off: skipped timestamp fields are reported", func(t *testing.T) {
+		runAnalysisTest(t, "converters/16-exclude-fields/off",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertArticle",
+				FieldsMissing: []string{"a.CreatedAt", "a.UpdatedAt"},
+			},
+		)
+	})
+
+	t.Run("on: excluded fields (leaf and nested path) are not required", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.ExcludeFieldPatterns = []string{"CreatedAt", "UpdatedAt", `Meta\.Internal`}
+		runAnalysisTestWithConfig(t, "converters/16-exclude-fields/on", cfg)
+	})
+}
+
+func TestIgnoreTags(t *testing.T) {
+	t.Run("off: tagged fields are still required", func(t *testing.T) {
+		runAnalysisTest(t, "converters/17-ignore-tags/off",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertProduct",
+				FieldsMissing: []string{"p.Secret", "p.Audit", "p.Comments"},
+			},
+		)
+	})
+
+	t.Run("on: tagged fields are skipped", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.IgnoreFieldTags = []string{`lostfield:"ignore"`, "internal", `json:"-"`}
+		runAnalysisTestWithConfig(t, "converters/17-ignore-tags/on", cfg)
+	})
+}
+
+func TestMinSimilarity(t *testing.T) {
+	// With min-similarity=0.6:
+	// - Message vs MessageNewParams (dice ~0.57) -> callAndMeter is NOT a converter
+	// - UserModel vs UserModelDTO (dice > 0.6) -> ConvertUser is still validated
+	cfg := config.DefaultConfig()
+	cfg.MinTypeNameSimilarity = 0.6
+	runAnalysisTestWithConfig(t, "converters/18-min-similarity", cfg,
+		DiagnosticAssertion{
+			FunctionName:  "ConvertUser",
+			FieldsMissing: []string{"u.Name", "Name"},
+		},
+	)
 }
 
 func TestNonMarshallableFields(t *testing.T) {
@@ -505,7 +578,8 @@ func TestIsPossibleConverter(t *testing.T) {
 			}
 
 			// Test IsPossibleConverter
-			got := lf.IsPossibleConverter(funcDecl, pass)
+			defaultCfg := config.DefaultConfig()
+			got := lf.IsPossibleConverter(funcDecl, pass, &defaultCfg)
 			if got != tt.want {
 				t.Errorf("IsPossibleConverter(%q) = %v, want %v", tt.funcName, got, tt.want)
 			}

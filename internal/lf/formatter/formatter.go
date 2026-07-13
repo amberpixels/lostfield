@@ -40,10 +40,13 @@ type Formatter interface {
 // New returns a formatter based on the format name.
 // Supported formats: "default" (standard go vet), "pretty" (Rust-like).
 // Returns default formatter for unknown format names.
+//
+// A formatter's lifetime is a single analyzer Run call: the pretty formatter
+// caches source file contents for the duration of the run.
 func New(format string) Formatter {
 	switch format {
 	case FormatterPretty:
-		return &prettyFormatter{}
+		return newPrettyFormatter()
 	case FormatterDefault:
 		fallthrough
 	default:

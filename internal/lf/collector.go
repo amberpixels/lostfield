@@ -157,41 +157,47 @@ func CollectUsedMethods(n ast.Node, varName string) UsageLookup {
 	return NewUsageCollector(varName, RecordMethods).Walk(n)
 }
 
-// CollectCompositeLitKeys scans for composite literals of type matching the given candidate,
-// and returns a set of keys (field names) that appear in the literal.
-// (We assume keys are simple identifiers; more complex cases can be added as needed.)
-func CollectCompositeLitKeys(n ast.Node, candidateName string) UsageLookup {
-	ul := make(UsageLookup)
-	ast.Inspect(n, func(node ast.Node) bool {
-		cl, ok := node.(*ast.CompositeLit)
-		if !ok {
-			return true
-		}
-		if ident, ok := cl.Type.(*ast.Ident); ok && ident.Name == candidateName {
-			for _, elt := range cl.Elts {
-				kv, ok := elt.(*ast.KeyValueExpr)
-				if !ok {
-					continue
-				}
-				if keyIdent, ok := kv.Key.(*ast.Ident); ok {
-					ul[keyIdent.Name] = struct{}{}
-				}
+// unwrapCompositeLit returns the composite literal in expr, unwrapping the
+// address-of form (&T{...}). Returns nil if expr is not a composite literal.
+func unwrapCompositeLit(expr ast.Expr) *ast.CompositeLit {
+	switch x := expr.(type) {
+	case *ast.CompositeLit:
+		return x
+	case *ast.UnaryExpr:
+		if x.Op == token.AND {
+			if lit, ok := x.X.(*ast.CompositeLit); ok {
+				return lit
 			}
 		}
-		return true
-	})
-
-	return ul
+	}
+	return nil
 }
 
-// CollectOutputFields inspects fn.Body looking for all field names that are "set"
-// on the output value of the converter. It does two things:
-//
-//	(a) If outVar is non-empty, it collects direct field accesses on that variable.
-//	(b) It also scans assignment and return statements to find composite literals
-//	    (or their address-of forms) whose type (or underlying type) matches candidateName,
-//	    then collects the keys (i.e. field names) provided in the literal.
-//
+// compositeLitTypeName returns the (unqualified) type name of a composite literal,
+// e.g. "Category" for both Category{...} and models.Category{...}.
+func compositeLitTypeName(cl *ast.CompositeLit) string {
+	switch t := cl.Type.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	}
+	return ""
+}
+
+// compositeLitOf unwraps expr (handling the &T{...} form) and returns the composite
+// literal if its type name matches candidateName (case-insensitive), nil otherwise.
+func compositeLitOf(expr ast.Expr, candidateName string) *ast.CompositeLit {
+	cl := unwrapCompositeLit(expr)
+	if cl == nil {
+		return nil
+	}
+	if !strings.EqualFold(compositeLitTypeName(cl), candidateName) {
+		return nil
+	}
+	return cl
+}
+
 // CollectOutputFields inspects fn.Body and returns a set of field names that are used in
 // constructing the output value of the converter. It does two things:
 //
@@ -235,55 +241,21 @@ func CollectOutputFields(fn *ast.FuncDecl, outVar, candidateName string) UsageLo
 // extractKeysFromExpr examines expr and, if it is or contains a composite literal
 // that initializes a value of type candidateName, it extracts any key names (including nested ones) and adds them to keys.
 func extractKeysFromExpr(expr ast.Expr, candidateName string, keys UsageLookup) {
-	var cl *ast.CompositeLit
-
-	switch x := expr.(type) {
-	case *ast.CompositeLit:
-		cl = x
-	case *ast.UnaryExpr:
-		// Handle cases like: out = &Category{...}
-		if x.Op == token.AND {
-			if lit, ok := x.X.(*ast.CompositeLit); ok {
-				cl = lit
-			}
-		}
-	case *ast.CallExpr:
-		// Handle cases like: return (&Category{...}).MethodCall()
-		// The composite literal is in the receiver of the call
-		if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-			// The receiver might be wrapped in parentheses: (&Type{...}).Method()
+	// Handle cases like: return (&Category{...}).MethodCall()
+	// The composite literal is in the receiver of the call.
+	if call, ok := expr.(*ast.CallExpr); ok {
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 			recv := sel.X
-
-			// Unwrap ParenExpr if present
+			// Unwrap ParenExpr if present: (&Type{...}).Method()
 			if paren, ok := recv.(*ast.ParenExpr); ok {
 				recv = paren.X
 			}
-
-			// Now we should have a UnaryExpr with &
-			if unaryRecv, ok := recv.(*ast.UnaryExpr); ok && unaryRecv.Op == token.AND {
-				if lit, ok := unaryRecv.X.(*ast.CompositeLit); ok {
-					cl = lit
-				}
-			}
+			expr = recv
 		}
 	}
 
+	cl := compositeLitOf(expr, candidateName)
 	if cl == nil {
-		return
-	}
-
-	// Determine the type name of the composite literal.
-	var typeName string
-	switch t := cl.Type.(type) {
-	case *ast.Ident:
-		typeName = t.Name
-	case *ast.SelectorExpr:
-		// For types like models.Category, use the selector's identifier.
-		typeName = t.Sel.Name
-	}
-
-	// Compare candidate names (optionally case-insensitively).
-	if !strings.EqualFold(typeName, candidateName) {
 		return
 	}
 
@@ -384,33 +356,8 @@ func findLocalCandidateVariable(fn *ast.FuncDecl, candidateName string) string {
 			if i >= len(decl.Rhs) {
 				continue
 			}
-			expr := decl.Rhs[i]
-			var cl *ast.CompositeLit
-			switch x := expr.(type) {
-			case *ast.CompositeLit:
-				cl = x
-			case *ast.UnaryExpr:
-				// Handle cases like: out := &Category{ ... }
-				if x.Op == token.AND {
-					if lit, ok := x.X.(*ast.CompositeLit); ok {
-						cl = lit
-					}
-				}
-			}
-			if cl == nil {
-				continue
-			}
-			// Determine the type name of the composite literal.
-			var typeName string
-			switch t := cl.Type.(type) {
-			case *ast.Ident:
-				typeName = t.Name
-			case *ast.SelectorExpr:
-				// For types like models.Category, use the selector's identifier.
-				typeName = t.Sel.Name
-			}
-			// Compare candidate names case-insensitively.
-			if strings.EqualFold(typeName, candidateName) {
+			// Handle cases like: out := Category{...} and out := &Category{...}
+			if compositeLitOf(decl.Rhs[i], candidateName) != nil {
 				varName = ident.Name
 				return false // stop searching
 			}

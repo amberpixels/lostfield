@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/amberpixels/lostfield/internal/lf/fixer"
@@ -64,12 +65,28 @@ type pendingDiagnostic struct {
 	validation *ConverterValidationResult
 }
 
-// Run function used in analysis.Analyzer.
-func Run(pass *analysis.Pass) (any, error) {
+// NewAnalyzer builds the lostfield analysis.Analyzer bound to the given configuration.
+// The config is captured by the Run closure, so multiple analyzers with different
+// configs can coexist in one process (required for golangci-lint integration).
+// Passing nil uses the default configuration.
+func NewAnalyzer(cfg *config.Config) *analysis.Analyzer {
+	if cfg == nil {
+		def := config.DefaultConfig()
+		cfg = &def
+	}
+	return &analysis.Analyzer{
+		Name: config.LinterName,
+		Doc:  config.LinterDoc,
+		Run: func(pass *analysis.Pass) (any, error) {
+			return Run(pass, cfg)
+		},
+	}
+}
+
+// Run executes the analysis for a single package with the given configuration.
+func Run(pass *analysis.Pass, cfg *config.Config) (any, error) {
 	filesTotal := 0
 	filesWarned := make(map[string]struct{})
-
-	cfg := config.Get()
 
 	// Collect all diagnostics first so we can number them.
 	var pending []pendingDiagnostic
@@ -97,12 +114,17 @@ func Run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 
-			if !IsPossibleConverter(fn, pass) {
+			if !IsPossibleConverter(fn, pass, cfg) {
 				return true
 			}
 
-			validationResult, err := ValidateConverter(fn, pass)
+			validationResult, err := ValidateConverter(fn, pass, cfg)
 			if err != nil {
+				// Not a validation failure but an inability to validate (e.g. unnamed
+				// candidate parameter). Skip the function; report only in verbose mode.
+				if cfg.Verbose {
+					fmt.Fprintf(os.Stderr, "lostfield: skipping %s: %v\n", fn.Name.Name, err)
+				}
 				return true
 			}
 
@@ -124,7 +146,7 @@ func Run(pass *analysis.Pass) (any, error) {
 
 	// Format and report all diagnostics with numbering.
 	total := len(pending)
-	fmtr := formatter.New(cfg.Format)
+	fmtr := formatter.New(string(cfg.Format))
 	for i, d := range pending {
 		formattedMessage := fmtr.Format(&formatter.FormatContext{
 			Filename: d.filename,
@@ -142,11 +164,11 @@ func Run(pass *analysis.Pass) (any, error) {
 		})
 
 		var suggestedFixes []analysis.SuggestedFix
-		if d.validation.Fix != nil && cfg.FixMode != "" {
+		if d.validation.Fix != nil && cfg.FixMode != config.FixModeDisabled {
 			suggestedFixes = fixer.GenerateFixes(d.validation.Fix, &fixer.ValidationResult{
 				MissingInputFields:  d.validation.MissingInputFields,
 				MissingOutputFields: d.validation.MissingOutputFields,
-			}, cfg.FixMode)
+			}, string(cfg.FixMode))
 		}
 
 		pass.Report(analysis.Diagnostic{
@@ -258,9 +280,7 @@ func isConstructor(fn *ast.FuncDecl) bool {
 //     the names of the candidate types share a common substring (ignoring case).
 //
 // Constructors (functions starting with "New") are excluded.
-func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
-	cfg := config.Get()
-
+func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Config) bool {
 	// Exclude constructors (functions starting with "New")
 	if isConstructor(fn) {
 		return false
@@ -359,8 +379,23 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass) bool {
 				}
 			}
 
+			// Match type names: with min-similarity configured, require the
+			// Sørensen–Dice bigram similarity to reach the threshold; otherwise
+			// fall back to case-insensitive substring containment.
+			if cfg.MinTypeNameSimilarity > 0 {
+				if typeNameSimilarity(inCand.name, outCand.name) >= cfg.MinTypeNameSimilarity {
+					return true
+				}
+				continue
+			}
+			// Containment requires the shorter name (the shared substring) to be
+			// at least 3 chars: 1-2 char overlaps are accidental, not conversions.
+			const minSharedLen = 3
 			lowerOut := strings.ToLower(outCand.name)
-			if strings.Contains(lowerOut, lowerIn) || strings.Contains(lowerIn, lowerOut) {
+			if len(lowerIn) >= minSharedLen && strings.Contains(lowerOut, lowerIn) {
+				return true
+			}
+			if len(lowerOut) >= minSharedLen && strings.Contains(lowerIn, lowerOut) {
 				return true
 			}
 		}
@@ -400,9 +435,55 @@ func isNonMarshallableType(fieldType types.Type) bool {
 	return false
 }
 
+// deprecatedFieldCache memoizes the per-file index of deprecated struct field names.
+// Keyed by filename (NOT *ast.File - a pointer key would pin every visited AST in
+// memory for the process lifetime, which matters in long golangci-lint runs);
+// values are map[string]bool. The maps are tiny (field names only) and computed
+// at most once per file regardless of how many fields are validated.
+var deprecatedFieldCache sync.Map
+
+// deprecatedFieldsInFile walks a file's AST once and returns the set of struct field
+// names whose doc comment contains a "Deprecated:" marker.
+func deprecatedFieldsInFile(filename string, file *ast.File) map[string]bool {
+	if cached, ok := deprecatedFieldCache.Load(filename); ok {
+		if m, isMap := cached.(map[string]bool); isMap {
+			return m
+		}
+	}
+
+	deprecated := make(map[string]bool)
+	ast.Inspect(file, func(n ast.Node) bool {
+		structType, ok := n.(*ast.StructType)
+		if !ok || structType.Fields == nil {
+			return true
+		}
+		for _, f := range structType.Fields.List {
+			if f.Doc == nil {
+				continue
+			}
+			for _, comment := range f.Doc.List {
+				if strings.Contains(comment.Text, "Deprecated:") {
+					for _, name := range f.Names {
+						deprecated[name.Name] = true
+					}
+					break
+				}
+			}
+		}
+		return true
+	})
+
+	deprecatedFieldCache.Store(filename, deprecated)
+	return deprecated
+}
+
 // isDeprecatedField checks if a field is marked as deprecated by looking for
-// "Deprecated:" in its documentation comment or by checking for deprecated markers
-// in protobuf-generated code (via tags or field structure hints).
+// "Deprecated:" in its documentation comment.
+//
+// Limitation: only fields whose defining file is part of the current analysis pass
+// can be identified as deprecated. Fields of types imported from other packages
+// (including generated .pb.go files excluded from the run) are never considered
+// deprecated, because their ASTs (and doc comments) are not available here.
 func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
 	if field == nil || pass == nil {
 		return false
@@ -413,69 +494,13 @@ func isDeprecatedField(field *types.Var, pass *analysis.Pass) bool {
 		return false
 	}
 
-	fieldName := field.Name()
+	filename := pass.Fset.Position(fieldPos).Filename
 
-	// Get the file position
-	positionInfo := pass.Fset.Position(fieldPos)
-	filename := positionInfo.Filename
-
-	// First, try to find the field in pass.Files (local code)
 	for _, file := range pass.Files {
-		// Check if this is the right file
-		filePos := pass.Fset.Position(file.Pos())
-		if filePos.Filename != filename {
+		if pass.Fset.Position(file.Pos()).Filename != filename {
 			continue
 		}
-
-		// Walk the AST to find struct definitions and check their fields
-		var foundDeprecated bool
-		ast.Inspect(file, func(n ast.Node) bool {
-			structType, ok := n.(*ast.StructType)
-			if !ok {
-				return true
-			}
-
-			// Check if the field is in this struct
-			if structType.Fields == nil {
-				return true
-			}
-
-			for _, f := range structType.Fields.List {
-				// Check if this field matches our target field by name
-				if f.Names != nil {
-					for _, name := range f.Names {
-						if name.Name == fieldName {
-							// Found our field, check its comments
-							if f.Doc != nil {
-								for _, comment := range f.Doc.List {
-									if strings.Contains(comment.Text, "Deprecated:") {
-										foundDeprecated = true
-										return false
-									}
-								}
-							}
-							return false
-						}
-					}
-				}
-			}
-			return true
-		})
-
-		if foundDeprecated {
-			return true
-		}
-	}
-
-	// For protobuf-generated code and other imported packages, we need to search more broadly.
-	// Try to find all files in the fileset and search for the field definition with comments.
-	if allFiles := pass.Fset.File(fieldPos); allFiles != nil {
-		// TODO: not implemented yet in a full manner
-		// Note:
-		// We have the file, but it might not be in pass.Files if it's from an external package
-		// This is a limitation of the current approach - we can only check files in the current analysis pass
-		// For proto-generated files, users should ensure the .pb.go files are included in the analysis
-		_ = allFiles
+		return deprecatedFieldsInFile(filename, file)[field.Name()]
 	}
 
 	return false
@@ -489,9 +514,10 @@ func collectMissingFields(
 	st *types.Struct,
 	usedFields UsageLookup,
 	pass *analysis.Pass,
+	cfg *config.Config,
 	usedMethodsArg ...UsageLookup,
 ) []string {
-	return collectMissingFieldsWithPrefix(st, usedFields, pass, "", usedMethodsArg...)
+	return collectMissingFieldsWithPrefix(st, usedFields, pass, cfg, "", usedMethodsArg...)
 }
 
 // collectMissingFieldsWithPrefix recursively collects missing fields for a struct, tracking the nesting prefix.
@@ -500,11 +526,12 @@ func collectMissingFieldsWithPrefix(
 	st *types.Struct,
 	usedFields UsageLookup,
 	pass *analysis.Pass,
+	cfg *config.Config,
 	prefix string,
 	usedMethodsArg ...UsageLookup,
 ) []string {
-	cfg := config.Get()
 	var missing []string
+	excludePatterns := compileFieldPatterns(cfg.ExcludeFieldPatterns)
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
 
@@ -515,27 +542,33 @@ func collectMissingFieldsWithPrefix(
 			}
 		}
 
-		// Skip deprecated fields if configured
-		deprecated := isDeprecatedField(field, pass)
-		if cfg.IgnoreDeprecated && deprecated {
+		// Skip fields excluded by the exclude-fields regex patterns
+		// (matched against both the leaf name and the full nested path)
+		if len(excludePatterns) > 0 {
+			fullPath := field.Name()
+			if prefix != "" {
+				fullPath = prefix + "." + field.Name()
+			}
+			if isFieldExcluded(field.Name(), fullPath, excludePatterns) {
+				continue
+			}
+		}
+
+		// Skip fields whose struct tag matches an ignore-tags entry
+		if len(cfg.IgnoreFieldTags) > 0 && isFieldTagIgnored(st.Tag(i), cfg.IgnoreFieldTags) {
 			continue
 		}
 
-		// Handle non-marshallable fields based on configuration
-		isNonMarshallable := isNonMarshallableType(field.Type())
-		if isNonMarshallable {
-			switch cfg.NonMarshallableFieldsHandling {
-			case config.HandleIgnore:
-				// Skip non-marshallable fields entirely
-				continue
-			case config.HandleAdaptive:
-				// For adaptive mode, we'll handle this at the validation level
-				// (check if field exists in both input and output)
-				// For now, continue processing normally, but mark it specially
-				_ = isNonMarshallable // marker for later use
-			case config.HandleStrict:
-				// Treat as normal field - fall through
-			}
+		// Skip deprecated fields unless explicitly included
+		if !cfg.IncludeDeprecated && isDeprecatedField(field, pass) {
+			continue
+		}
+
+		// Non-marshallable fields: "ignore" skips them here entirely; "adaptive" is
+		// applied later in filterMissingFieldsByNonMarshallableMode (kept only when
+		// present in both input and output); "strict" treats them as normal fields.
+		if cfg.NonMarshallableFieldsHandling == config.HandleIgnore && isNonMarshallableType(field.Type()) {
+			continue
 		}
 
 		// Build the full field name with prefix
@@ -572,7 +605,7 @@ func collectMissingFieldsWithPrefix(
 		} else {
 			// Field is used - check if it's a struct field that needs nested validation
 			// Only validate nested fields if there are actually nested accesses in usedFields
-			nestedMissing := validateNestedStructField(field, fullFieldName, usedFields, pass)
+			nestedMissing := validateNestedStructField(field, fullFieldName, usedFields, pass, cfg)
 			missing = append(missing, nestedMissing...)
 		}
 	}
@@ -586,6 +619,7 @@ func validateNestedStructField(
 	fieldPath string,
 	usedFields UsageLookup,
 	pass *analysis.Pass,
+	cfg *config.Config,
 ) []string {
 	var missing []string
 
@@ -619,7 +653,7 @@ func validateNestedStructField(
 
 	// Only validate nested fields if there are explicit nested accesses
 	if hasNestedAccess {
-		nestedMissing := collectMissingFieldsWithPrefix(nestedStruct, usedFields, pass, fieldPath)
+		nestedMissing := collectMissingFieldsWithPrefix(nestedStruct, usedFields, pass, cfg, fieldPath)
 		missing = append(missing, nestedMissing...)
 	}
 
@@ -711,9 +745,8 @@ func NewFailedConverterValidationResult(in, out []string) *ConverterValidationRe
 func filterMissingFieldsByNonMarshallableMode(
 	inMissing, outMissing []string,
 	inStruct, outStruct *types.Struct,
+	cfg *config.Config,
 ) ([]string, []string) {
-	cfg := config.Get()
-
 	if cfg.NonMarshallableFieldsHandling != config.HandleAdaptive {
 		return inMissing, outMissing
 	}
@@ -791,9 +824,8 @@ func filterMissingFieldsByNonMarshallableMode(
 func filterMissingFieldsByValidationMode(
 	inMissing, outMissing []string,
 	inStruct, outStruct *types.Struct,
+	cfg *config.Config,
 ) ([]string, []string) {
-	cfg := config.Get()
-
 	if cfg.FieldValidationMode != config.ModeIntersection {
 		return inMissing, outMissing
 	}
@@ -849,7 +881,7 @@ func filterMissingFieldsByValidationMode(
 //
 // For input, we assume the candidate comes from the first parameter and that it has a name.
 // For output, we first try to use a named result; if none, we look for a composite literal.
-func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidationResult, error) {
+func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Config) (*ConverterValidationResult, error) {
 	// Retrieve the function object and signature.
 	obj := pass.TypesInfo.Defs[fn.Name]
 	if obj == nil {
@@ -895,7 +927,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 
 	// Check if this is an aggregating converter (slice -> non-slice with slice field)
 	if isAgg, sliceFieldName := isAggregatingConverter(inCand, outCand); isAgg {
-		result := validateAggregatingConverter(fn, inCand, outCand, inVar, sliceFieldName, pass)
+		result := validateAggregatingConverter(fn, inCand, outCand, inVar, sliceFieldName, pass, cfg)
 		if result != nil {
 			result.ConverterType = ConverterTypeAggregating
 		}
@@ -914,14 +946,14 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 	}
 	fieldsUsedModelIn := CollectUsedFields(fn.Body, inFieldVar)
 	methodsUsedModelIn := CollectUsedMethods(fn.Body, inFieldVar)
-	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, methodsUsedModelIn)
+	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, cfg, methodsUsedModelIn)
 	for i, m := range missingIn {
 		missingIn[i] = inFieldVar + "." + m
 	}
 
 	// Collect field usages for the output candidate.
 	fieldsUsedModelOut := CollectOutputFields(fn, outVar, outCand.name)
-	missingOut := collectMissingFields(outCand.structType, fieldsUsedModelOut, pass)
+	missingOut := collectMissingFields(outCand.structType, fieldsUsedModelOut, pass, cfg)
 	if outVar != "" {
 		for i, m := range missingOut {
 			missingOut[i] = outVar + "." + m
@@ -934,6 +966,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 		missingOut,
 		inCand.structType,
 		outCand.structType,
+		cfg,
 	)
 
 	// Apply field validation mode filtering based on configuration
@@ -942,6 +975,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 		missingOut,
 		inCand.structType,
 		outCand.structType,
+		cfg,
 	)
 
 	if len(missingIn) == 0 && len(missingOut) == 0 {
@@ -952,7 +986,7 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass) (*ConverterValidat
 	result.ConverterType = ConverterTypeNormal
 
 	// Build FixContext only when fix mode is enabled to avoid unnecessary AST walks.
-	if config.Get().FixMode != "" {
+	if cfg.FixMode != config.FixModeDisabled {
 		isSliceInline := inFieldVar != inVar
 		var inNamedType *types.Named
 		if inCand.fullType != nil {
@@ -1185,6 +1219,7 @@ func validateAggregatingConverter(
 	inVar string,
 	sliceFieldName string,
 	pass *analysis.Pass,
+	cfg *config.Config,
 ) *ConverterValidationResult {
 	// Find the loop variable (e.g., "detail" in "for _, detail := range details")
 	loopVar := findLoopVariable(fn, inVar)
@@ -1196,7 +1231,7 @@ func validateAggregatingConverter(
 	// Validate that all input fields are used through the loop variable
 	fieldsUsedModelIn := CollectUsedFields(fn.Body, loopVar)
 	methodsUsedModelIn := CollectUsedMethods(fn.Body, loopVar)
-	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, methodsUsedModelIn)
+	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, cfg, methodsUsedModelIn)
 	for i, m := range missingIn {
 		missingIn[i] = loopVar + "." + m
 	}
@@ -1227,7 +1262,7 @@ func validateAggregatingConverter(
 
 	// Collect fields that are set in composite literals of the slice element type
 	fieldsUsedInSliceElem := CollectOutputFields(fn, "", sliceElemTypeName)
-	missingOut := collectMissingFields(sliceElemType, fieldsUsedInSliceElem, pass)
+	missingOut := collectMissingFields(sliceElemType, fieldsUsedInSliceElem, pass, cfg)
 	if len(missingOut) > 0 {
 		for i, m := range missingOut {
 			missingOut[i] = sliceFieldName + "[]." + m
@@ -1256,14 +1291,14 @@ func detectOutputStyle(fn *ast.FuncDecl, candidateName string) (fixer.OutputStyl
 		switch stmt := n.(type) {
 		case *ast.AssignStmt:
 			for _, expr := range stmt.Rhs {
-				cl = extractCompositeLit(expr, candidateName)
+				cl = compositeLitOf(expr, candidateName)
 				if cl != nil {
 					break
 				}
 			}
 		case *ast.ReturnStmt:
 			for _, expr := range stmt.Results {
-				cl = extractCompositeLit(expr, candidateName)
+				cl = compositeLitOf(expr, candidateName)
 				if cl != nil {
 					break
 				}
@@ -1281,39 +1316,6 @@ func detectOutputStyle(fn *ast.FuncDecl, candidateName string) (fixer.OutputStyl
 		return fixer.OutputStyleCompositeLit, compLitRbrace
 	}
 	return fixer.OutputStyleDotAssignment, token.NoPos
-}
-
-// extractCompositeLit extracts a composite literal from an expression if it matches the candidate name.
-func extractCompositeLit(expr ast.Expr, candidateName string) *ast.CompositeLit {
-	var cl *ast.CompositeLit
-
-	switch x := expr.(type) {
-	case *ast.CompositeLit:
-		cl = x
-	case *ast.UnaryExpr:
-		if x.Op == token.AND {
-			if lit, ok := x.X.(*ast.CompositeLit); ok {
-				cl = lit
-			}
-		}
-	}
-
-	if cl == nil {
-		return nil
-	}
-
-	var typeName string
-	switch t := cl.Type.(type) {
-	case *ast.Ident:
-		typeName = t.Name
-	case *ast.SelectorExpr:
-		typeName = t.Sel.Name
-	}
-
-	if strings.EqualFold(typeName, candidateName) {
-		return cl
-	}
-	return nil
 }
 
 // findLastReturnPos finds the position of the last top-level return statement

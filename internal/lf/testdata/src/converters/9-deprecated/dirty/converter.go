@@ -1,20 +1,34 @@
-package sample_deprecated
+package sample_deprecated_dirty
 
-import (
-	"converters/9-deprecated/models"
-)
+// Event represents the input model.
+type Event struct {
+	ID string
+	// Deprecated: use Name instead
+	OldName  string
+	Name     string
+	Venue    string
+	Category string
+}
 
-// ConvertEventModelToReply converts EventModel to EventReply
-// This converter handles all non-deprecated fields.
-// OldName is deprecated and is intentionally skipped.
-// When ExcludeDeprecated is enabled, no diagnostics are reported.
-func ConvertEventModelToReply(model *models.EventModel) *models.EventReply {
+// EventReply represents the output model.
+type EventReply struct {
+	ID string
+	// Deprecated: use Name instead
+	OldName  string
+	Name     string
+	Venue    string
+	Category string
+}
+
+// ConvertEventToReplySkippingDeprecated skips the deprecated OldName field.
+// This file is exercised with include-deprecated=true, where deprecated fields
+// are validated like any other field, so skipping OldName is reported.
+func ConvertEventToReplySkippingDeprecated(model *Event) *EventReply { // want "incomplete converter with missing fields: model.OldName, OldName"
 	if model == nil {
-		return &models.EventReply{}
+		return &EventReply{}
 	}
 
-	return &models.EventReply{
-		OldName:  model.OldName, // Deprecated field - intentionally copied to show we can still use it
+	return &EventReply{
 		ID:       model.ID,
 		Name:     model.Name,
 		Venue:    model.Venue,

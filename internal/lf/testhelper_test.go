@@ -25,14 +25,8 @@ func runAnalysisTest(t *testing.T, pkgPath string, assertions ...DiagnosticAsser
 
 	testdata := analysistest.TestData()
 
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run:  lf.Run,
-	}
-
 	// analysistest.Run() returns []*Result which has Diagnostics field
-	results := analysistest.Run(t, testdata, analyzer, pkgPath)
+	results := analysistest.Run(t, testdata, lf.NewAnalyzer(nil), pkgPath)
 
 	// Collect all diagnostics from all results
 	var diagnostics []*analysis.Diagnostic
@@ -126,25 +120,7 @@ func runRawAnalysisTestWithConfig(t *testing.T, pkgPath string, cfg *config.Conf
 
 	testdata := analysistest.TestData()
 
-	var run func(*analysis.Pass) (any, error)
-	if cfg != nil {
-		run = func(pass *analysis.Pass) (any, error) {
-			originalCfg := config.Get()
-			config.SetConfig(*cfg)
-			defer config.SetConfig(originalCfg)
-			return lf.Run(pass)
-		}
-	} else {
-		run = lf.Run
-	}
-
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields",
-		Run:  run,
-	}
-
-	results := analysistest.Run(t, testdata, analyzer, pkgPath)
+	results := analysistest.Run(t, testdata, lf.NewAnalyzer(cfg), pkgPath)
 
 	var diagnostics []analysis.Diagnostic
 	for _, result := range results {
@@ -165,23 +141,8 @@ func runAnalysisTestWithConfig(
 
 	testdata := analysistest.TestData()
 
-	analyzer := &analysis.Analyzer{
-		Name: "lostfield",
-		Doc:  "reports all inconsistent converter functions: finds lost fields)",
-		Run: func(pass *analysis.Pass) (any, error) {
-			// Temporarily set the config
-			originalCfg := config.Get()
-			config.SetConfig(cfg) // We'll need to add SetConfig to config package
-			defer func() {
-				config.SetConfig(originalCfg)
-			}()
-
-			return lf.Run(pass)
-		},
-	}
-
 	// analysistest.Run() returns []*Result which has Diagnostics field
-	results := analysistest.Run(t, testdata, analyzer, pkgPath)
+	results := analysistest.Run(t, testdata, lf.NewAnalyzer(&cfg), pkgPath)
 
 	// Collect all diagnostics from all results
 	var diagnostics []*analysis.Diagnostic

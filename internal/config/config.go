@@ -2,6 +2,9 @@ package config
 
 import (
 	"flag"
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -47,72 +50,114 @@ const (
 	ModeIntersection FieldValidationMode = "intersection"
 )
 
+// Format specifies the output format for diagnostics.
+type Format string
+
+const (
+	// FormatDefault: standard go vet single-line format.
+	FormatDefault Format = "default"
+
+	// FormatPretty: Rust-like multi-line pretty format with source excerpts.
+	FormatPretty Format = "pretty"
+)
+
+// FixMode controls whether diagnostics carry SuggestedFixes for automatic fixing.
+type FixMode string
+
+const (
+	// FixModeDisabled: fix generation is disabled; diagnostics are reported without fixes.
+	FixModeDisabled FixMode = ""
+
+	// FixModeSafe: generate safe fixes that suppress warnings without changing behavior
+	// (`_ = var.Field` stubs and TODO comments).
+	FixModeSafe FixMode = "safe"
+
+	// FixModeSmart: infer the correct field mapping (direct assignment, getter call, or
+	// type conversion) and fall back to the safe fix for incompatible types.
+	// The smart fix is listed first (applied by -fix), safe fix second.
+	FixModeSmart FixMode = "smart"
+)
+
 // Config holds all configuration for the analyzer.
+//
+// The json tags are the canonical setting names: they match the CLI flag names and are
+// used to decode settings coming from golangci-lint (module plugin or upstream).
 type Config struct {
 	// AllowMethodConverters enables looking for converters in methods in addition to plain functions.
 	// Default: true
-	AllowMethodConverters bool
+	AllowMethodConverters bool `json:"include-methods" mapstructure:"include-methods"`
 
 	// AllowGetters allows Get* methods as a substitute for field access
 	// Default: true
-	AllowGetters bool
+	AllowGetters bool `json:"allow-getters" mapstructure:"allow-getters"`
 
 	// AllowAggregators enables detection of slice->non-slice converters
 	// where the output struct contains a field that holds the converted slice.
 	// Default: true
-	AllowAggregators bool
+	AllowAggregators bool `json:"allow-aggregators" mapstructure:"allow-aggregators"`
 
-	// ExcludeFieldPatterns is a comma-separated list of regex patterns for field names to ignore
+	// ExcludeFieldPatterns is a list of regex patterns for field names to ignore.
+	// Patterns are matched against both the leaf field name (e.g. "CreatedAt") and
+	// the full nested path (e.g. "User.Role.CreatedAt").
 	// Default: []
-	ExcludeFieldPatterns []string
+	ExcludeFieldPatterns []string `json:"exclude-fields" mapstructure:"exclude-fields"`
 
-	// ExcludeConverterPatterns is a comma-separated list of glob patterns for function/method names to exclude from converter detection.
+	// ExcludeConverterPatterns is a list of glob patterns for function/method names to exclude from converter detection.
 	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
 	// Examples: "Get*", "Map*", "to*", "*Helper"
 	// Default: []
-	ExcludeConverterPatterns []string
+	ExcludeConverterPatterns []string `json:"exclude-converters" mapstructure:"exclude-converters"`
 
-	// OnlyConverterPatterns is a comma-separated list of glob patterns for function/method names to include.
+	// OnlyConverterPatterns is a list of glob patterns for function/method names to include.
 	// When non-empty, only converters matching at least one pattern are analyzed (inverse of exclude-converters).
 	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
 	// Examples: "CuratorPurchase", "Convert*"
 	// Default: []
-	OnlyConverterPatterns []string
+	OnlyConverterPatterns []string `json:"only-converters" mapstructure:"only-converters"`
 
-	// ExcludeFilePatterns is a comma-separated list of glob patterns for file paths to exclude from analysis.
+	// ExcludeFilePatterns is a list of glob patterns for file paths to exclude from analysis.
 	// Supports wildcards: * matches any sequence of characters, ? matches a single character.
 	// Patterns are matched against the full file path.
 	// Examples: "*_test.go", "*.pb.go", "*/vendor/*"
 	// Default: ["*_test.go", "*.pb.go", "*/vendor/*"]
-	ExcludeFilePatterns []string
+	ExcludeFilePatterns []string `json:"exclude-files" mapstructure:"exclude-files"`
 
-	// MinTypeNameSimilarity is the minimum type name similarity ratio (0.0-1.0, 0=substring matching)
-	MinTypeNameSimilarity float64
+	// MinTypeNameSimilarity is the minimum type name similarity ratio (0.0-1.0).
+	// 0.0 keeps the default behavior: case-insensitive substring matching between
+	// input/output type names. Values above 0.0 require the names to be at least
+	// that similar (Sørensen–Dice bigram coefficient) — recommended ~0.4-0.5 to
+	// reduce false positives on incidentally-similar names.
+	MinTypeNameSimilarity float64 `json:"min-similarity" mapstructure:"min-similarity"`
 
-	// IgnoreFieldTags is a comma-separated list of struct tags that mark fields to be ignored.
+	// IgnoreFieldTags is a list of struct tags that mark fields to be ignored.
+	// Each entry is either a bare tag key (e.g. "lostfield" — any value matches)
+	// or key:"value" form (e.g. `lostfield:"ignore"` — the tag value must match).
 	// Default: []
-	IgnoreFieldTags []string
+	IgnoreFieldTags []string `json:"ignore-tags" mapstructure:"ignore-tags"`
 
 	// IncludeGenerated includes generated code files in analysis.
 	// Default: false
-	IncludeGenerated bool
+	IncludeGenerated bool `json:"include-generated" mapstructure:"include-generated"`
 
-	// IgnoreDeprecated makes linter to ignore lost fields if they are deprecated.
+	// IncludeDeprecated includes deprecated fields in validation.
 	//
 	// Deprecated fields are identified by "Deprecated:" in their documentation comments.
+	// By default they are excluded from validation (a converter may legitimately skip them).
 	//
-	// Note: (Experimental): this might not work if source of the field is third-party,
-	//       or out-of-analysis, e.g. generated file.
-	//       So we won't be able to readme the comment and find that the field is deprecated.
-	IgnoreDeprecated bool
+	// Note (Experimental): detection only works for fields whose source is part of the
+	// current analysis pass. Fields from third-party or out-of-analysis packages
+	// (e.g. generated files excluded from the run) cannot be identified as deprecated.
+	//
+	// Default: false (deprecated fields are ignored)
+	IncludeDeprecated bool `json:"include-deprecated" mapstructure:"include-deprecated"`
 
 	// Verbose enables verbose output.
-	Verbose bool
+	Verbose bool `json:"verbose" mapstructure:"verbose"`
 
 	// Format specifies the output format for diagnostics.
 	// Supported values: "default" (standard go vet format), "pretty" (Rust-like pretty format).
 	// Default: "default"
-	Format string
+	Format Format `json:"format" mapstructure:"format"`
 
 	// NonMarshallableFieldsHandling specifies how to handle non-marshallable field types
 	// (functions, channels, etc. - types that cannot be serialized/marshalled).
@@ -131,7 +176,7 @@ type Config struct {
 	//     Example: Input has `Callback func()` → error if not read in converter
 	//
 	// Default: "adaptive"
-	NonMarshallableFieldsHandling NonMarshallableFieldsHandling
+	NonMarshallableFieldsHandling NonMarshallableFieldsHandling `json:"non-marshallable-fields" mapstructure:"non-marshallable-fields"`
 
 	// IncludePrivateFields enables validation of unexported (private) fields in converters.
 	// Private fields are lowercase-starting fields (e.g., `id`, `internalCache`, `mutex`).
@@ -147,7 +192,7 @@ type Config struct {
 	// This option is mostly useful for converters within the same package.
 	//
 	// Default: false (private fields ignored)
-	IncludePrivateFields bool
+	IncludePrivateFields bool `json:"include-private-fields" mapstructure:"include-private-fields"`
 
 	// FieldValidationMode specifies which fields must be validated in converters.
 	// Determines the scope of field validation for converter functions.
@@ -162,10 +207,10 @@ type Config struct {
 	//     Only Name and Email must be validated (intersection)
 	//
 	// Default: "strict"
-	FieldValidationMode FieldValidationMode
+	FieldValidationMode FieldValidationMode `json:"field-validation-mode" mapstructure:"field-validation-mode"`
 
 	// FixMode controls whether diagnostics carry SuggestedFixes for automatic fixing.
-	// When combined with the -fix flag (from singlechecker), fixes are applied automatically.
+	// When combined with the -fix flag (from unitchecker), fixes are applied automatically.
 	//
 	// Behavior:
 	//   - "" (empty, default): Fix generation is disabled. Diagnostics are reported without fixes.
@@ -177,7 +222,7 @@ type Config struct {
 	//     When mode is "smart", the smart fix is listed first (applied by -fix), safe fix second.
 	//
 	// Default: "" (disabled)
-	FixMode string
+	FixMode FixMode `json:"fix-mode" mapstructure:"fix-mode"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -190,30 +235,61 @@ func DefaultConfig() Config {
 		ExcludeConverterPatterns:      []string{},
 		OnlyConverterPatterns:         []string{},
 		ExcludeFilePatterns:           []string{"*_test.go", "*.pb.go", "*/vendor/*"},
-		MinTypeNameSimilarity:         0.0, // 0 = use strict substring matching.
+		MinTypeNameSimilarity:         0.0, // 0 = use substring matching.
 		IgnoreFieldTags:               []string{},
 		IncludeGenerated:              false,
-		IgnoreDeprecated:              false,
-		Verbose:                       false,          // Quiet output by default
-		Format:                        "default",      // Use standard go vet format by default
-		NonMarshallableFieldsHandling: HandleAdaptive, // Adapt to what's present in both input and output models by default
-		IncludePrivateFields:          false,          // Ignore private fields by default
-		FieldValidationMode:           ModeStrict,     // Validate all fields by default
-		FixMode:                       "",             // Fix generation disabled by default
+		IncludeDeprecated:             false,
+		Verbose:                       false,           // Quiet output by default
+		Format:                        FormatDefault,   // Use standard go vet format by default
+		NonMarshallableFieldsHandling: HandleAdaptive,  // Adapt to what's present in both input and output models by default
+		IncludePrivateFields:          false,           // Ignore private fields by default
+		FieldValidationMode:           ModeStrict,      // Validate all fields by default
+		FixMode:                       FixModeDisabled, // Fix generation disabled by default
 	}
 }
 
-// current holds the active configuration.
-var current = DefaultConfig()
+// Validate checks that all enum-like and numeric settings hold supported values.
+// It is called after flag parsing (standalone binary) and after settings decoding
+// (golangci-lint plugin), so a typo like `fix-mode: smrt` fails loudly instead of
+// silently disabling the feature.
+func (c *Config) Validate() error {
+	switch c.NonMarshallableFieldsHandling {
+	case HandleIgnore, HandleAdaptive, HandleStrict:
+	default:
+		return fmt.Errorf("invalid non-marshallable-fields value %q (supported: ignore, adaptive, strict)",
+			c.NonMarshallableFieldsHandling)
+	}
 
-// Get returns the current configuration.
-func Get() Config {
-	return current
-}
+	switch c.FieldValidationMode {
+	case ModeStrict, ModeIntersection:
+	default:
+		return fmt.Errorf("invalid field-validation-mode value %q (supported: strict, intersection)",
+			c.FieldValidationMode)
+	}
 
-// SetConfig sets the current configuration (useful for testing).
-func SetConfig(cfg Config) {
-	current = cfg
+	switch c.Format {
+	case FormatDefault, FormatPretty:
+	default:
+		return fmt.Errorf("invalid format value %q (supported: default, pretty)", c.Format)
+	}
+
+	switch c.FixMode {
+	case FixModeDisabled, FixModeSafe, FixModeSmart:
+	default:
+		return fmt.Errorf("invalid fix-mode value %q (supported: safe, smart, or empty to disable)", c.FixMode)
+	}
+
+	if c.MinTypeNameSimilarity < 0.0 || c.MinTypeNameSimilarity > 1.0 {
+		return fmt.Errorf("invalid min-similarity value %v (must be within 0.0-1.0)", c.MinTypeNameSimilarity)
+	}
+
+	for _, p := range c.ExcludeFieldPatterns {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("invalid exclude-fields pattern %q: %w", p, err)
+		}
+	}
+
+	return nil
 }
 
 // splitCommaSeparated splits a comma-separated string into a slice of strings.
@@ -225,22 +301,31 @@ func splitCommaSeparated(s string) []string {
 	return strings.Split(s, ",")
 }
 
-// RegisterFlags registers configuration flags with the analyzer's FlagSet.
-func RegisterFlags(fs *flag.FlagSet) {
-	fs.BoolVar(&current.AllowMethodConverters, "include-methods", current.AllowMethodConverters,
+// RegisterFlags registers configuration flags with the analyzer's FlagSet,
+// binding them to the given Config instance. Enum-like flags are validated
+// at parse time, so an unsupported value fails flag parsing instead of being
+// silently accepted.
+func RegisterFlags(fs *flag.FlagSet, cfg *Config) {
+	fs.BoolVar(&cfg.AllowMethodConverters, "include-methods", cfg.AllowMethodConverters,
 		"check method receivers in addition to plain functions")
 
-	fs.BoolVar(&current.AllowGetters, "allow-getters", current.AllowGetters,
+	fs.BoolVar(&cfg.AllowGetters, "allow-getters", cfg.AllowGetters,
 		"allow Get* methods as a substitute for direct field access")
 
-	fs.BoolVar(&current.AllowAggregators, "allow-aggregators", current.AllowAggregators,
+	fs.BoolVar(&cfg.AllowAggregators, "allow-aggregators", cfg.AllowAggregators,
 		"enable detection of slice->non-slice aggregating converters")
 
 	fs.Func(
 		"exclude-fields",
 		"comma-separated regex patterns for field names to ignore (e.g., 'CreatedAt,UpdatedAt,.*ID')",
 		func(s string) error {
-			current.ExcludeFieldPatterns = splitCommaSeparated(s)
+			patterns := splitCommaSeparated(s)
+			for _, p := range patterns {
+				if _, err := regexp.Compile(p); err != nil {
+					return fmt.Errorf("invalid exclude-fields pattern %q: %w", p, err)
+				}
+			}
+			cfg.ExcludeFieldPatterns = patterns
 			return nil
 		},
 	)
@@ -249,7 +334,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"exclude-converters",
 		"comma-separated glob patterns for function/method names to exclude from converter detection (e.g., 'Get*,Map*,to*')",
 		func(s string) error {
-			current.ExcludeConverterPatterns = splitCommaSeparated(s)
+			cfg.ExcludeConverterPatterns = splitCommaSeparated(s)
 			return nil
 		},
 	)
@@ -258,7 +343,7 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"only-converters",
 		"comma-separated glob patterns for function/method names to include (only matching converters are analyzed)",
 		func(s string) error {
-			current.OnlyConverterPatterns = splitCommaSeparated(s)
+			cfg.OnlyConverterPatterns = splitCommaSeparated(s)
 			return nil
 		},
 	)
@@ -267,53 +352,98 @@ func RegisterFlags(fs *flag.FlagSet) {
 		"exclude-files",
 		"comma-separated glob patterns for file paths to exclude from analysis (e.g., '*_test.go,*.pb.go,*/vendor/*')",
 		func(s string) error {
-			current.ExcludeFilePatterns = splitCommaSeparated(s)
+			cfg.ExcludeFilePatterns = splitCommaSeparated(s)
 			return nil
 		},
 	)
 
-	fs.Float64Var(&current.MinTypeNameSimilarity, "min-similarity", current.MinTypeNameSimilarity,
-		"minimum type name similarity ratio (0.0-1.0, 0=substring matching, higher=stricter)")
+	fs.Func(
+		"min-similarity",
+		"minimum type name similarity ratio (0.0-1.0, 0=substring matching, higher=stricter)",
+		func(s string) error {
+			v, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				return fmt.Errorf("invalid min-similarity value %q: %w", s, err)
+			}
+			if v < 0.0 || v > 1.0 {
+				return fmt.Errorf("invalid min-similarity value %q (must be within 0.0-1.0)", s)
+			}
+			cfg.MinTypeNameSimilarity = v
+			return nil
+		},
+	)
 
 	fs.Func("ignore-tags", "comma-separated struct tags to ignore fields (e.g., 'lostfield:\"ignore\"')",
 		func(s string) error {
-			current.IgnoreFieldTags = splitCommaSeparated(s)
+			cfg.IgnoreFieldTags = splitCommaSeparated(s)
 			return nil
 		})
 
-	fs.BoolVar(&current.Verbose, "verbose", current.Verbose,
+	fs.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose,
 		"enable verbose output")
 
-	fs.BoolVar(&current.IncludeGenerated, "include-generated", current.IncludeGenerated,
+	fs.BoolVar(&cfg.IncludeGenerated, "include-generated", cfg.IncludeGenerated,
 		"include generated code files in analysis (default: exclude)")
 
-	fs.BoolVar(&current.IgnoreDeprecated, "include-deprecated", current.IgnoreDeprecated,
+	fs.BoolVar(&cfg.IncludeDeprecated, "include-deprecated", cfg.IncludeDeprecated,
 		"include deprecated fields in validation (default: exclude)")
 
-	fs.StringVar(&current.Format, "format", current.Format,
-		"output format for diagnostics (default: standard go vet format, pretty: Rust-like pretty format)")
+	fs.Func(
+		"format",
+		"output format for diagnostics (default: standard go vet format, pretty: Rust-like pretty format)",
+		func(s string) error {
+			cfg.Format = Format(s)
+			switch cfg.Format {
+			case FormatDefault, FormatPretty:
+				return nil
+			default:
+				return fmt.Errorf("invalid format value %q (supported: default, pretty)", s)
+			}
+		},
+	)
 
 	fs.Func(
 		"non-marshallable-fields",
 		"how to handle non-marshallable field types (ignore, adaptive, strict)",
 		func(s string) error {
-			current.NonMarshallableFieldsHandling = NonMarshallableFieldsHandling(s)
-			return nil
+			cfg.NonMarshallableFieldsHandling = NonMarshallableFieldsHandling(s)
+			switch cfg.NonMarshallableFieldsHandling {
+			case HandleIgnore, HandleAdaptive, HandleStrict:
+				return nil
+			default:
+				return fmt.Errorf("invalid non-marshallable-fields value %q (supported: ignore, adaptive, strict)", s)
+			}
 		},
 	)
 
-	fs.BoolVar(&current.IncludePrivateFields, "include-private-fields", current.IncludePrivateFields,
+	fs.BoolVar(&cfg.IncludePrivateFields, "include-private-fields", cfg.IncludePrivateFields,
 		"validate unexported (private) fields in converters (default: ignore private fields)")
 
 	fs.Func(
 		"field-validation-mode",
 		"field validation mode (strict: all fields from both input and output, intersection: only common fields)",
 		func(s string) error {
-			current.FieldValidationMode = FieldValidationMode(s)
-			return nil
+			cfg.FieldValidationMode = FieldValidationMode(s)
+			switch cfg.FieldValidationMode {
+			case ModeStrict, ModeIntersection:
+				return nil
+			default:
+				return fmt.Errorf("invalid field-validation-mode value %q (supported: strict, intersection)", s)
+			}
 		},
 	)
 
-	fs.StringVar(&current.FixMode, "fix-mode", current.FixMode,
-		"fix mode for automatic fixes (empty=disabled, safe=suppress warnings, smart=infer mappings)")
+	fs.Func(
+		"fix-mode",
+		"fix mode for automatic fixes (empty=disabled, safe=suppress warnings, smart=infer mappings)",
+		func(s string) error {
+			cfg.FixMode = FixMode(s)
+			switch cfg.FixMode {
+			case FixModeDisabled, FixModeSafe, FixModeSmart:
+				return nil
+			default:
+				return fmt.Errorf("invalid fix-mode value %q (supported: safe, smart, or empty to disable)", s)
+			}
+		},
+	)
 }

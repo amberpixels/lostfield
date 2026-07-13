@@ -1,13 +1,13 @@
 package formatter
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"go/ast"
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 	"golang.org/x/tools/go/analysis"
@@ -15,7 +15,39 @@ import (
 
 // prettyFormatter implements a Rust-like pretty diagnostic format.
 // It is completely independent and creates its own detailed message from raw validation data.
-type prettyFormatter struct{}
+//
+// The pretty format is intended for humans reading terminal output; it embeds
+// ANSI colors and multi-line source excerpts directly into the diagnostic message.
+// Do not use it with machine-readable consumers (go vet -json, editors, golangci-lint) -
+// use the default format there.
+type prettyFormatter struct {
+	// colorize enables ANSI colors. Colors are on by default (output usually goes
+	// through `go vet`, which pipes it, so TTY auto-detection would always say no),
+	// but the standard NO_COLOR convention (https://no-color.org) is respected.
+	colorize bool
+
+	// fileLines caches source file contents per filename for the current formatter
+	// lifetime (one Run call), so each file is read at most once per run.
+	fileLines map[string][]string
+}
+
+func newPrettyFormatter() *prettyFormatter {
+	return &prettyFormatter{
+		colorize:  os.Getenv("NO_COLOR") == "",
+		fileLines: make(map[string][]string),
+	}
+}
+
+// sprintFunc returns a colorizing sprint function for attrs, or a plain
+// pass-through when colors are disabled.
+func (c *prettyFormatter) sprintFunc(attrs ...color.Attribute) func(a ...any) string {
+	if !c.colorize {
+		return fmt.Sprint
+	}
+	col := color.New(attrs...)
+	col.EnableColor() // per-instance: no global color.NoColor mutation
+	return col.SprintFunc()
+}
 
 // Format produces a Rust-like pretty diagnostic message with colors and formatting.
 // It independently formats the message from the raw validation data.
@@ -87,15 +119,35 @@ func (c *prettyFormatter) formatValidationMessage(validation *ConverterValidatio
 
 	// Add re-run hint when any fields were truncated
 	if inRemaining > 0 || outRemaining > 0 {
-		buf.WriteString("\n  hint: re-run with -lostfield.verbose for full list, or -lostfield.only-converters=\"FuncName\" to target a specific function")
+		buf.WriteString("\n  hint: re-run with -lostfield.verbose for full list," +
+			" or -lostfield.only-converters=\"FuncName\" to target a specific function")
 	}
 
 	return buf.String()
 }
 
+// sourceLine returns the 1-based line of the given file, reading and caching the
+// file contents on first access. Returns "" when the file or line is unavailable.
+func (c *prettyFormatter) sourceLine(filename string, line int) string {
+	lines, ok := c.fileLines[filename]
+	if !ok {
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			c.fileLines[filename] = nil
+			return ""
+		}
+		lines = strings.Split(string(data), "\n")
+		c.fileLines[filename] = lines
+	}
+	if line < 1 || line > len(lines) {
+		return ""
+	}
+	return lines[line-1]
+}
+
 // prettyPrint writes a linter message in a Rust-like style to the given writer.
 // It extracts the source line from the file (using filename and pos.Line), shortens it to a maximum
-// width (120 characters) while preserving the significant ranges, adjusts the caret position, and prints
+// width (120 characters) while preserving the beginning, adjusts the caret position, and prints
 // the formatted diagnostic.
 func (c *prettyFormatter) prettyPrint(
 	w *bytes.Buffer,
@@ -108,82 +160,40 @@ func (c *prettyFormatter) prettyPrint(
 ) {
 	pos := pass.Fset.Position(fn.Name.Pos())
 
-	// Open the file.
-	file, err := os.Open(filename)
-	if err != nil {
-		fmt.Fprintf(w, "error opening file %q: %v\n", filename, err)
-		return
-	}
-	defer file.Close()
-
-	// Read the file line-by-line until we get to the desired line.
-	var sourceLine string
-	scanner := bufio.NewScanner(file)
-	currentLine := 1
-	for scanner.Scan() {
-		if currentLine == pos.Line {
-			sourceLine = scanner.Text()
-			break
-		}
-		currentLine++
-	}
+	sourceLine := c.sourceLine(filename, pos.Line)
 	if sourceLine == "" {
 		sourceLine = "<source unavailable>"
 	}
 
-	// Shorten the source line.
-	maxWidth := 120
+	// Shorten the source line (rune-safe).
+	const maxWidth = 120
 	shortLine := shortenLine(sourceLine, maxWidth)
 
 	// Determine the gutter width (using the line number).
 	lineNumStr := strconv.Itoa(pos.Line)
 	gutterWidth := len(lineNumStr)
 
-	// Adjust the caret: we know pos.Column is in the original line.
-	// Estimate how many characters were trimmed from the beginning.
-	origCaret := pos.Column - 1 // 0-indexed in the original line.
-	trimmed := 0
-	if strings.HasPrefix(shortLine, "…") {
-		// Find the index in the original line where the shortened part begins.
-		idx := strings.Index(sourceLine, shortLine[3:])
-		if idx >= 0 {
-			trimmed = idx
-		}
-	}
-	newCaret := origCaret - trimmed
-	if strings.HasPrefix(shortLine, "…") {
-		newCaret += 1 // account for the ellipsis.
-	}
-	if newCaret < 0 {
-		newCaret = 0
-	}
-	if newCaret > len(shortLine) {
-		newCaret = len(shortLine)
-	}
+	// pos.Column is a 1-based byte offset in the original line; convert it to a
+	// rune-based caret column so multibyte characters don't shift the caret.
+	byteCaret := max(min(pos.Column-1, len(sourceLine)), 0)
+	newCaret := min(
+		utf8.RuneCountInString(sourceLine[:byteCaret]),
+		utf8.RuneCountInString(shortLine),
+	)
 
-	// Prepare colored output.
-	// Force color output even when output is not a TTY (when captured by go vet).
-	// Note: We set the global NoColor flag to ensure colors are rendered.
-	//nolint:reassign // Set global flag to force color output in go vet
-	color.NoColor = false
-
-	blue := color.New(color.FgBlue).SprintFunc()
-	red := color.New(color.FgRed).SprintFunc()
-	yellow := color.New(color.FgYellow).SprintFunc()
-	bold := color.New(color.Bold).SprintFunc()
-
-	_ = bold
+	blue := c.sprintFunc(color.FgBlue)
+	red := c.sprintFunc(color.FgRed)
+	yellow := c.sprintFunc(color.FgYellow)
 
 	// Print header.
 	fnName := fn.Name.Name
-	fnNameLen := len(fnName)
+	fnNameLen := utf8.RuneCountInString(fnName)
 
 	// Print with extra spacing (4 spaces min) before the function code
 	const minSpacing = 4
 	fmt.Fprintf(w, "\n%*s %s\n", gutterWidth, "", blue("|"))
 	lineNum := blue(fmt.Sprintf("%*d", gutterWidth, pos.Line))
 	pipe := blue(" |")
-	//nolint:gosec // CLI output, not web
 	fmt.Fprintf(w, "%s%s %s %*s%s\n",
 		lineNum, pipe, "", minSpacing, "", shortLine)
 
@@ -195,7 +205,6 @@ func (c *prettyFormatter) prettyPrint(
 	if converterType != "" {
 		typeLabel = " detected as " + converterType
 	}
-	//nolint:gosec // CLI output, not web
 	fmt.Fprintf(w, "%*s %s  %s%s\n",
 		gutterWidth, "", blue("|"), caretLine, yellow(typeLabel))
 
@@ -222,13 +231,13 @@ func (c *prettyFormatter) prettyPrint(
 	}
 }
 
-// shortenLine shortens a given line to at most maxWidth characters while preserving
-// significant ranges. If any portion is omitted, ellipses ("…") are inserted accordingly.
+// shortenLine shortens a given line to at most maxWidth runes. If the line is
+// truncated, an ellipsis ("…") replaces the tail. Truncation is rune-safe:
+// multibyte characters are never split.
 func shortenLine(line string, maxWidth int) string {
-	if len(line) <= maxWidth {
+	runes := []rune(line)
+	if len(runes) <= maxWidth {
 		return line
 	}
-
-	// If the line is longer than maxWidth, return its first maxWidth characters.
-	return line[:maxWidth-1] + "…"
+	return string(runes[:maxWidth-1]) + "…"
 }

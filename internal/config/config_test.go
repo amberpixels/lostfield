@@ -32,8 +32,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("IncludeGenerated: got %v, want false", cfg.IncludeGenerated)
 	}
 
-	if cfg.IgnoreDeprecated != false {
-		t.Errorf("IncludeDeprecated: got %v, want false", cfg.IgnoreDeprecated)
+	if cfg.IncludeDeprecated != false {
+		t.Errorf("IncludeDeprecated: got %v, want false", cfg.IncludeDeprecated)
 	}
 
 	// Verify non-boolean defaults
@@ -64,27 +64,25 @@ func TestDefaultConfig(t *testing.T) {
 	if len(cfg.IgnoreFieldTags) > 0 {
 		t.Errorf("IgnoreFieldTags: got %q, want empty string", cfg.IgnoreFieldTags)
 	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("DefaultConfig should validate cleanly, got: %v", err)
+	}
 }
 
 func TestRegisterFlags(t *testing.T) {
-	// Create a new FlagSet for testing
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	config.RegisterFlags(fs)
-
-	// Test that flags are registered
 	tests := []struct {
 		name      string
 		flagName  string
 		value     string
 		wantErr   bool
-		checkFunc func(*testing.T)
+		checkFunc func(*testing.T, *config.Config)
 	}{
 		{
 			name:     "include-methods flag",
 			flagName: "-include-methods",
 			value:    "true",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				if !cfg.AllowMethodConverters {
 					t.Errorf("IncludeMethods: got false, want true")
 				}
@@ -94,8 +92,7 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "allow-getters flag",
 			flagName: "-allow-getters",
 			value:    "false",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				if cfg.AllowGetters {
 					t.Errorf("AllowGetters: got true, want false")
 				}
@@ -105,8 +102,7 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "allow-aggregators flag",
 			flagName: "-allow-aggregators",
 			value:    "true",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				if !cfg.AllowAggregators {
 					t.Errorf("AllowAggregators: got false, want true")
 				}
@@ -116,8 +112,7 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "exclude-fields flag",
 			flagName: "-exclude-fields",
 			value:    "CreatedAt,UpdatedAt",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				want := "CreatedAt,UpdatedAt"
 				if strings.Join(cfg.ExcludeFieldPatterns, ",") != want {
 					t.Errorf("ExcludeFieldPatterns: got %q, want %q", cfg.ExcludeFieldPatterns, want)
@@ -128,8 +123,7 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "exclude-converters flag",
 			flagName: "-exclude-converters",
 			value:    "Get*,Map*,to*",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				want := "Get*,Map*,to*"
 				if strings.Join(cfg.ExcludeConverterPatterns, ",") != want {
 					t.Errorf("ExcludeConverterPatterns: got %q, want %q", cfg.ExcludeConverterPatterns, want)
@@ -140,8 +134,7 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "exclude-files flag",
 			flagName: "-exclude-files",
 			value:    "*_test.go,*.pb.go",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				want := "*_test.go,*.pb.go"
 				if strings.Join(cfg.ExcludeFilePatterns, ",") != want {
 					t.Errorf("ExcludeFilePatterns: got %q, want %q", cfg.ExcludeFilePatterns, want)
@@ -152,8 +145,7 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "min-similarity flag",
 			flagName: "-min-similarity",
 			value:    "0.8",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				want := 0.8
 				if cfg.MinTypeNameSimilarity != want {
 					t.Errorf("MinTypeSimilarity: got %v, want %v", cfg.MinTypeNameSimilarity, want)
@@ -164,21 +156,50 @@ func TestRegisterFlags(t *testing.T) {
 			name:     "ignore-tags flag",
 			flagName: "-ignore-tags",
 			value:    "json:\"-\",lostfield:\"ignore\"",
-			checkFunc: func(t *testing.T) {
-				cfg := config.Get()
+			checkFunc: func(t *testing.T, cfg *config.Config) {
 				want := "json:\"-\",lostfield:\"ignore\""
 				if strings.Join(cfg.IgnoreFieldTags, ",") != want {
 					t.Errorf("IgnoreFieldTags: got %q, want %q", cfg.IgnoreFieldTags, want)
 				}
 			},
 		},
+		{
+			name:     "min-similarity out of range",
+			flagName: "-min-similarity",
+			value:    "1.5",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid format",
+			flagName: "-format",
+			value:    "fancy",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid non-marshallable-fields",
+			flagName: "-non-marshallable-fields",
+			value:    "sloppy",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid field-validation-mode",
+			flagName: "-field-validation-mode",
+			value:    "union",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid fix-mode",
+			flagName: "-fix-mode",
+			value:    "smrt",
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset flags and config for each test
-			fs = flag.NewFlagSet("test", flag.ContinueOnError)
-			config.RegisterFlags(fs)
+			cfg := config.DefaultConfig()
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			config.RegisterFlags(fs, &cfg)
 
 			// Parse the flag
 			args := []string{tt.flagName + "=" + tt.value}
@@ -190,26 +211,8 @@ func TestRegisterFlags(t *testing.T) {
 			}
 
 			if tt.checkFunc != nil {
-				tt.checkFunc(t)
+				tt.checkFunc(t, &cfg)
 			}
 		})
 	}
-}
-
-func TestConfigGet(t *testing.T) {
-	// Get should return the current configuration
-	cfg := config.Get()
-
-	// Verify it's a valid Config struct with all fields accessible
-	_ = cfg.AllowMethodConverters
-	_ = cfg.AllowGetters
-	_ = cfg.AllowAggregators
-	_ = cfg.Verbose
-	_ = cfg.IncludeGenerated
-	_ = cfg.IgnoreDeprecated
-	_ = cfg.ExcludeFieldPatterns
-	_ = cfg.ExcludeConverterPatterns
-	_ = cfg.ExcludeFilePatterns
-	_ = cfg.MinTypeNameSimilarity
-	_ = cfg.IgnoreFieldTags
 }
