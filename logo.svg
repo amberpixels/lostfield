@@ -3,16 +3,16 @@
     text { font-family: 'Menlo','Consolas','DejaVu Sans Mono',monospace; font-size: 26px; font-weight: 700; white-space: pre; }
   </style>
   <rect width="160" height="146" fill="transparent"/>
-  <!-- L (block, slightly imperfect) -->
+  <!-- L (block; horizontal slit through the stem) -->
   <text x="8" y="26" fill="#FBBF24">░█░░</text>
-  <text x="8" y="48" fill="#FBBF24">░█▒░</text>
-  <text x="8" y="70" fill="#FBBF24">░▀▀▄</text>
+  <text x="8" y="48" fill="#FBBF24">░▄░░</text>
+  <text x="8" y="70" fill="#FBBF24">░▀▀▀</text>
   <!-- OST (plain) -->
   <text x="72" y="70" fill="#FBBF24">OST</text>
-  <!-- F (block, dropped + slightly imperfect) -->
-  <text x="24" y="92" fill="#F97316">░█▀▒</text>
-  <text x="24" y="114" fill="#F97316">░█▀▀</text>
-  <text x="24" y="136" fill="#F97316">░▀▒░</text>
+  <!-- F (block, dropped; notched mid-bar) -->
+  <text x="24" y="92" fill="#F97316">░█▀▀</text>
+  <text x="24" y="114" fill="#F97316">░█▀░</text>
+  <text x="24" y="136" fill="#F97316">░▀░░</text>
   <!-- IELD (plain) -->
   <text x="88" y="136" fill="#F97316">IELD</text>
 </svg>
