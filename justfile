@@ -12,10 +12,10 @@ tidy:
     @go vet $(go list ./...)
     @go mod tidy
 
-# Install golangci-lint only if it's not already installed
+# Install golangci-lint (v2) only if it's not already installed
 lint-install:
     @if ! which golangci-lint > /dev/null 2>&1; then \
-        go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
+        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest; \
     fi
 
 # Lint the code using golangci-lint
