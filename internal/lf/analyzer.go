@@ -578,7 +578,7 @@ func collectMissingFieldsWithPrefix(
 		}
 
 		// Check if field is used directly
-		fieldUsed := usedFields.LookUp(fullFieldName)
+		fieldUsed := usedFields.Has(fullFieldName)
 
 		// Also check if this field is the start of a nested field chain
 		// For example, if looking for "User" and we have "User.Role.Name" in usedFields, that counts as using "User"
@@ -598,7 +598,7 @@ func collectMissingFieldsWithPrefix(
 		if !fieldUsed {
 			// if methods were given, let's allow via getters (if config allows)
 			// If a getter method exists (for input candidate) then allow it.
-			if cfg.AllowGetters && len(usedMethodsArg) > 0 && usedMethodsArg[0].LookUp("Get"+field.Name()) {
+			if cfg.AllowGetters && len(usedMethodsArg) > 0 && usedMethodsArg[0].Has("Get"+field.Name()) {
 				continue
 			}
 			missing = append(missing, fullFieldName)
@@ -691,7 +691,7 @@ func areEmbeddedFieldsUsed(embeddedStruct *types.Struct, usedFields UsageLookup)
 		exportedFieldCount++
 
 		// Check if this field is in usedFields (it would be accessed as parent.fieldName due to embedding)
-		if usedFields.LookUp(field.Name()) {
+		if usedFields.Has(field.Name()) {
 			usedEmbeddedCount++
 		}
 	}

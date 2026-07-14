@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
+
+	"github.com/amberpixels/k1/set"
 )
 
 // CollectingType means which type of node we can "collect" via usageCollector.
@@ -15,13 +17,9 @@ const (
 	RecordFields
 )
 
-// UsageLookup is a map storing name of fields/methods that were used.
-type UsageLookup map[string]struct{}
-
-func (ul UsageLookup) LookUp(v string) bool {
-	_, ok := ul[v]
-	return ok
-}
+// UsageLookup is a set holding the names of fields/methods that were used.
+// It aliases k1/set.Lookup, so use .Has to test membership and .Add to record.
+type UsageLookup = set.Lookup[string]
 
 // UsageCollector is a generic AST visitor that collects selector usage for a given variable.
 // rType(RecordingType) stands for the type of things we record: fields or methods.
@@ -80,7 +78,7 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 
 	// Decide based on the mode.
 	if v.nodesType == RecordMethods && isMethodCall || !isMethodCall {
-		v.used[fieldChain] = struct{}{}
+		v.used.Add(fieldChain)
 	}
 
 	// Also check if this selector is used in a blank identifier assignment (e.g., _ = model.Field)
@@ -91,7 +89,7 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 			if len(assign.Lhs) > 0 {
 				if ident, ok := assign.Lhs[0].(*ast.Ident); ok && ident.Name == "_" {
 					// This is an assignment to blank identifier, mark field as used
-					v.used[fieldChain] = struct{}{}
+					v.used.Add(fieldChain)
 				}
 			}
 		}
@@ -216,7 +214,7 @@ func CollectOutputFields(fn *ast.FuncDecl, outVar, candidateName string) UsageLo
 	// (a) If we have an output variable, collect direct field accesses.
 	if outVar != "" {
 		for k := range CollectUsedFields(fn.Body, outVar) {
-			ul[k] = struct{}{}
+			ul.Add(k)
 		}
 	}
 
@@ -291,7 +289,7 @@ func extractKeysFromCompositeLitWithPrefix(cl *ast.CompositeLit, keys UsageLooku
 			if prefix != "" {
 				fullKey = prefix + "." + fullKey
 			}
-			keys[fullKey] = struct{}{}
+			keys.Add(fullKey)
 
 			// Recursively extract nested keys with this key as the prefix
 			extractKeysFromValueWithPrefix(kv.Value, keys, fullKey)
