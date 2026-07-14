@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" alt="LostField" width="240">
+  <img src="logo.svg" alt="LostField" width="560">
 </p>
 
 <div align="center">
@@ -10,7 +10,6 @@ A Go linter that catches incomplete struct converters.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/amberpixels/lostfield.svg)](https://pkg.go.dev/github.com/amberpixels/lostfield)
 [![CI](https://github.com/amberpixels/lostfield/actions/workflows/ci.yml/badge.svg)](https://github.com/amberpixels/lostfield/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/amberpixels/lostfield)](https://goreportcard.com/report/github.com/amberpixels/lostfield)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/amberpixels/lostfield)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -302,10 +301,10 @@ Responsibility for the code is human. 🤖🤝🧑
 
 ## Feedback
 
-Questions, ideas, bug reports, and feedback are genuinely welcome - please
-[open an issue](https://github.com/amberpixels/lostfield/issues). It's
-MIT-licensed, so you're also free to fork and adapt it for your own work.
+lostfield is a solo, opinionated project - but if you stumbled upon it and have
+ideas, questions, or bug reports, an
+[issue](https://github.com/amberpixels/lostfield/issues) is always welcome :)
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © [amberpixels](https://amberpixels.io)
