@@ -302,6 +302,24 @@ func TestSliceInlineMapping(t *testing.T) {
 	})
 }
 
+func TestForwardingConverters(t *testing.T) {
+	t.Run("21-forwarding:clean", func(t *testing.T) {
+		// A converter that hands its whole input to another converter maps nothing itself,
+		// so it must not be reported: the callee is validated on its own.
+		runAnalysisTest(t, "converters/21-forwarding/clean")
+	})
+
+	t.Run("21-forwarding:dirty", func(t *testing.T) {
+		// Forwarding on one branch does not excuse a branch that builds the output by hand.
+		runAnalysisTest(t, "converters/21-forwarding/dirty",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertLocationMixed_MissingTitle",
+				FieldsMissing: []string{"in.Title", "Title"},
+			},
+		)
+	})
+}
+
 func TestIndexedAccess(t *testing.T) {
 	t.Run("20-indexed-access:clean", func(t *testing.T) {
 		// Converters that reach elements by indexing the parameter (in[i].Field) instead of

@@ -932,6 +932,16 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Config
 		return result, nil
 	}
 
+	// A converter that hands its whole input to another converter maps nothing itself:
+	// the callee is analyzed on its own, so validating this one reports every field on
+	// both sides. Requiring that it builds no part of the output keeps the mixed shape
+	// (one branch forwards, another fills a literal) under validation, where it belongs.
+	if forwardsWholeInput(fn, inVar) && len(CollectOutputFields(fn, outVar, outCand.name)) == 0 {
+		result := NewOKConverterValidationResult()
+		result.ConverterType = ConverterTypeDelegating
+		return result, nil
+	}
+
 	// Check if this is an aggregating converter (slice -> non-slice with slice field)
 	if isAgg, sliceFieldName := isAggregatingConverter(inCand, outCand); isAgg {
 		result := validateAggregatingConverter(fn, inCand, outCand, inVar, sliceFieldName, pass, cfg)
@@ -1162,6 +1172,50 @@ func isDelegatingConverter(
 	})
 
 	return foundDelegation
+}
+
+// forwardsWholeInput reports whether some return in fn hands the input variable itself to
+// another function, as in "return newCuratorResponse(in)". Callers must also check that fn
+// builds no output of its own before treating that as delegation.
+func forwardsWholeInput(fn *ast.FuncDecl, inVar string) bool {
+	var found bool
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		for _, res := range ret.Results {
+			call, okCall := res.(*ast.CallExpr)
+			if !okCall {
+				continue
+			}
+			for _, arg := range call.Args {
+				if isVarRef(arg, inVar) {
+					found = true
+					return false
+				}
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// isVarRef reports whether expr refers to varName directly, seeing through &v, *v and (v).
+func isVarRef(expr ast.Expr, varName string) bool {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return x.Name == varName
+	case *ast.UnaryExpr:
+		if x.Op == token.AND {
+			return isVarRef(x.X, varName)
+		}
+	case *ast.StarExpr:
+		return isVarRef(x.X, varName)
+	case *ast.ParenExpr:
+		return isVarRef(x.X, varName)
+	}
+	return false
 }
 
 // delegatesByIndex reports whether fn stores the result of a call that receives a whole
