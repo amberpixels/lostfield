@@ -98,6 +98,12 @@ func (v *UsageCollector) Visit(container ast.Node) ast.Visitor {
 	return v
 }
 
+func (v *UsageCollector) Walk(container ast.Node) UsageLookup {
+	v.reset()
+	ast.Walk(v, container)
+	return v.used
+}
+
 // buildFieldChain builds a chain of field accesses from a SelectorExpr.
 // For example, given event.User.Role.Name, it returns "User.Role.Name" (without the varName prefix).
 // Returns empty string if the selector chain doesn't start with varName.
@@ -132,6 +138,11 @@ func (v *UsageCollector) buildFieldChain(sel *ast.SelectorExpr) string {
 	return ""
 }
 
+func (v *UsageCollector) reset() {
+	v.parentStack = make([]ast.Node, 0)
+	v.used = make(UsageLookup)
+}
+
 // unwrapBase strips the wrappers that still denote the same base variable: indexing
 // (items[i]), parentheses ((items)) and pointer dereference (*item). Reading a field off
 // any of them is a read of that variable, so the chain walk must see through them -
@@ -149,17 +160,6 @@ func unwrapBase(expr ast.Expr) ast.Expr {
 			return expr
 		}
 	}
-}
-
-func (v *UsageCollector) reset() {
-	v.parentStack = make([]ast.Node, 0)
-	v.used = make(UsageLookup)
-}
-
-func (v *UsageCollector) Walk(container ast.Node) UsageLookup {
-	v.reset()
-	ast.Walk(v, container)
-	return v.used
 }
 
 // CollectUsedFields walks the AST rooted at n and returns a set (UsageLookup)

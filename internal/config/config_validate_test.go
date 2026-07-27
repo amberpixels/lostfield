@@ -3,10 +3,11 @@ package config_test
 import (
 	"testing"
 
-	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/expectto/be"
 	"github.com/expectto/be/be_string"
 	. "github.com/onsi/gomega"
+
+	"github.com/amberpixels/lostfield/internal/config"
 )
 
 func TestConfigValidate(t *testing.T) {

@@ -47,9 +47,8 @@ func New(format string) Formatter {
 	switch format {
 	case FormatterPretty:
 		return newPrettyFormatter()
-	case FormatterDefault:
-		fallthrough
 	default:
+		// FormatterDefault and anything unrecognised.
 		return &defaultFormatter{}
 	}
 }

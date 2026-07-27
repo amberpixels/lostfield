@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/tools/go/analysis"
+
 	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/amberpixels/lostfield/internal/lf"
-	"golang.org/x/tools/go/analysis"
 )
 
 func TestReadmeExample(t *testing.T) {

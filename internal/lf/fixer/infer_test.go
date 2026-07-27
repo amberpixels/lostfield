@@ -5,10 +5,11 @@ import (
 	"go/types"
 	"testing"
 
-	"github.com/amberpixels/lostfield/internal/lf/fixer"
 	"github.com/expectto/be"
 	"github.com/expectto/be/be_string"
 	. "github.com/onsi/gomega"
+
+	"github.com/amberpixels/lostfield/internal/lf/fixer"
 )
 
 // newFixContext returns a minimal fixer.FixContext for inferAssignment unit tests.

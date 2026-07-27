@@ -38,17 +38,6 @@ func newPrettyFormatter() *prettyFormatter {
 	}
 }
 
-// sprintFunc returns a colorizing sprint function for attrs, or a plain
-// pass-through when colors are disabled.
-func (c *prettyFormatter) sprintFunc(attrs ...color.Attribute) func(a ...any) string {
-	if !c.colorize {
-		return fmt.Sprint
-	}
-	col := color.New(attrs...)
-	col.EnableColor() // per-instance: no global color.NoColor mutation
-	return col.SprintFunc()
-}
-
 // Format produces a Rust-like pretty diagnostic message with colors and formatting.
 // It independently formats the message from the raw validation data.
 func (c *prettyFormatter) Format(ctx *FormatContext) string {
@@ -58,6 +47,17 @@ func (c *prettyFormatter) Format(ctx *FormatContext) string {
 	var buf bytes.Buffer
 	c.prettyPrint(&buf, ctx.Filename, ctx.Fn, ctx.Pass, message, ctx.Validation.ConverterType, ctx.Index, ctx.Total)
 	return buf.String()
+}
+
+// sprintFunc returns a colorizing sprint function for attrs, or a plain
+// pass-through when colors are disabled.
+func (c *prettyFormatter) sprintFunc(attrs ...color.Attribute) func(a ...any) string {
+	if !c.colorize {
+		return fmt.Sprint
+	}
+	col := color.New(attrs...)
+	col.EnableColor() // per-instance: no global color.NoColor mutation
+	return col.SprintFunc()
 }
 
 // maxFieldsPerSide is the maximum number of fields to display per side (input/output)

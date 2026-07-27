@@ -16,9 +16,10 @@ package lostfield
 import (
 	"flag"
 
+	"golang.org/x/tools/go/analysis"
+
 	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/amberpixels/lostfield/internal/lf"
-	"golang.org/x/tools/go/analysis"
 )
 
 // Config holds all configuration for the lostfield analyzer.

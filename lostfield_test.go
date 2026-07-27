@@ -4,11 +4,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/amberpixels/lostfield"
 	"github.com/expectto/be"
 	"github.com/expectto/be/be_string"
 	. "github.com/onsi/gomega"
 	"golang.org/x/tools/go/analysis/analysistest"
+
+	"github.com/amberpixels/lostfield"
 )
 
 // TestNewAnalyzerSmoke runs the public analyzer over the shared testdata corpus,

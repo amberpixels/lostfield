@@ -4,10 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amberpixels/lostfield/internal/config"
-	"github.com/amberpixels/lostfield/internal/lf"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/analysistest"
+
+	"github.com/amberpixels/lostfield/internal/config"
+	"github.com/amberpixels/lostfield/internal/lf"
 )
 
 // DiagnosticAssertion represents an expected diagnostic with its properties.
@@ -68,18 +69,18 @@ func runAnalysisTest(t *testing.T, pkgPath string, assertions ...DiagnosticAsser
 func extractMissingFields(msg string) []string {
 	// Look for "missing fields: " in the message
 	marker := "missing fields: "
-	idx := strings.Index(msg, marker)
-	if idx == -1 {
+	_, after, ok := strings.Cut(msg, marker)
+	if !ok {
 		// No missing fields section found, converter is valid
 		return []string{}
 	}
 
 	// Extract everything after "missing fields: "
-	fieldsStr := msg[idx+len(marker):]
+	fieldsStr := after
 
 	// Split by comma and trim whitespace
 	var fields []string
-	for _, field := range strings.Split(fieldsStr, ",") {
+	for field := range strings.SplitSeq(fieldsStr, ",") {
 		trimmed := strings.TrimSpace(field)
 		if trimmed != "" {
 			fields = append(fields, trimmed)

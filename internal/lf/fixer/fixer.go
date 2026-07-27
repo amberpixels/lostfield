@@ -332,8 +332,7 @@ func inferAssignment(fixCtx *FixContext, field string, inType, outType types.Typ
 	// 2. Getter exists
 	if fixCtx.InNamedType != nil {
 		getterName := "Get" + field
-		for i := 0; i < fixCtx.InNamedType.NumMethods(); i++ {
-			method := fixCtx.InNamedType.Method(i)
+		for method := range fixCtx.InNamedType.Methods() {
 			if method.Name() == getterName {
 				sig, ok := method.Type().(*types.Signature)
 				if ok && sig.Params().Len() == 0 && sig.Results().Len() >= 1 {
@@ -368,8 +367,7 @@ func buildFieldTypeMap(st *types.Struct) map[string]types.Type {
 	if st == nil {
 		return m
 	}
-	for i := 0; i < st.NumFields(); i++ {
-		f := st.Field(i)
+	for f := range st.Fields() {
 		if f.Exported() {
 			m[f.Name()] = f.Type()
 		}

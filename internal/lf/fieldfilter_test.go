@@ -3,10 +3,11 @@ package lf_test
 import (
 	"testing"
 
-	"github.com/amberpixels/lostfield/internal/lf"
 	"github.com/expectto/be"
 	"github.com/expectto/be/be_math"
 	. "github.com/onsi/gomega"
+
+	"github.com/amberpixels/lostfield/internal/lf"
 )
 
 func TestTypeNameSimilarity(t *testing.T) {

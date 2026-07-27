@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/amberpixels/lostfield"
 	"golang.org/x/tools/go/analysis/unitchecker"
+
+	"github.com/amberpixels/lostfield"
 )
 
 func main() {

@@ -8,13 +8,15 @@ import (
 	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
+
+	"golang.org/x/tools/go/analysis"
 
 	"github.com/amberpixels/lostfield/internal/config"
 	"github.com/amberpixels/lostfield/internal/lf/fixer"
 	"github.com/amberpixels/lostfield/internal/lf/formatter"
-	"golang.org/x/tools/go/analysis"
 )
 
 // generatedFilePatterns are compiled once at package initialization for performance.
@@ -319,8 +321,7 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Conf
 
 	// Gather candidate types from input parameters.
 	var inCandidates []candidate
-	for i := 0; i < sig.Params().Len(); i++ {
-		param := sig.Params().At(i)
+	for param := range sig.Params().Variables() {
 		if cand, ok := extractCandidateType(param.Type()); ok {
 			inCandidates = append(inCandidates, cand)
 		}
@@ -331,9 +332,7 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Conf
 
 	// Gather candidate types from output parameters.
 	var outCandidates []candidate
-	for i := 0; i < sig.Results().Len(); i++ {
-		res := sig.Results().At(i)
-
+	for res := range sig.Results().Variables() {
 		if cand, ok := extractCandidateType(res.Type()); ok {
 			outCandidates = append(outCandidates, cand)
 		}
@@ -539,7 +538,7 @@ func collectMissingFieldsWithPrefix(
 ) []string {
 	var missing []string
 	excludePatterns := compileFieldPatterns(cfg.ExcludeFieldPatterns)
-	for i := 0; i < st.NumFields(); i++ {
+	for i := range st.NumFields() {
 		field := st.Field(i)
 
 		// Skip private (unexported) fields unless explicitly enabled
@@ -690,8 +689,7 @@ func areEmbeddedFieldsUsed(embeddedStruct *types.Struct, usedFields UsageLookup)
 	exportedFieldCount := 0
 	usedEmbeddedCount := 0
 
-	for i := 0; i < embeddedStruct.NumFields(); i++ {
-		field := embeddedStruct.Field(i)
+	for field := range embeddedStruct.Fields() {
 		if !field.Exported() {
 			continue
 		}
@@ -743,6 +741,7 @@ type ConverterValidationResult struct {
 func NewOKConverterValidationResult() *ConverterValidationResult {
 	return &ConverterValidationResult{Valid: true}
 }
+
 func NewFailedConverterValidationResult(in, out []string) *ConverterValidationResult {
 	return &ConverterValidationResult{MissingInputFields: in, MissingOutputFields: out}
 }
@@ -762,15 +761,13 @@ func filterMissingFieldsByNonMarshallableMode(
 	inFieldTypes := make(map[string]types.Type)
 	outFieldTypes := make(map[string]types.Type)
 
-	for i := 0; i < inStruct.NumFields(); i++ {
-		field := inStruct.Field(i)
+	for field := range inStruct.Fields() {
 		if field.Exported() {
 			inFieldTypes[field.Name()] = field.Type()
 		}
 	}
 
-	for i := 0; i < outStruct.NumFields(); i++ {
-		field := outStruct.Field(i)
+	for field := range outStruct.Fields() {
 		if field.Exported() {
 			outFieldTypes[field.Name()] = field.Type()
 		}
@@ -841,15 +838,13 @@ func filterMissingFieldsByValidationMode(
 	inFieldNames := make(map[string]bool)
 	outFieldNames := make(map[string]bool)
 
-	for i := 0; i < inStruct.NumFields(); i++ {
-		field := inStruct.Field(i)
+	for field := range inStruct.Fields() {
 		if field.Exported() {
 			inFieldNames[field.Name()] = true
 		}
 	}
 
-	for i := 0; i < outStruct.NumFields(); i++ {
-		field := outStruct.Field(i)
+	for field := range outStruct.Fields() {
 		if field.Exported() {
 			outFieldNames[field.Name()] = true
 		}
@@ -1064,7 +1059,7 @@ func findCandidateParam(fieldList *ast.FieldList, sigParams *types.Tuple) (candi
 			n = len(names)
 		}
 		// For each declared parameter in this field:
-		for i := 0; i < n; i++ {
+		for i := range n {
 			// Get the type from the signature.
 			if paramIndex >= sigParams.Len() {
 				break
@@ -1276,7 +1271,7 @@ func indexesVar(expr ast.Expr, varName string) bool {
 //
 // Returns (isAggregating, sliceFieldName) where:
 // - sliceFieldName is the field in the output that represents the aggregated/converted slice.
-func isAggregatingConverter(inCand candidate, outCand candidate) (bool, string) {
+func isAggregatingConverter(inCand, outCand candidate) (bool, string) {
 	// Input must be a slice, output must be a non-slice struct
 	if inCand.containerType != ContainerSlice {
 		return false, ""
@@ -1287,8 +1282,7 @@ func isAggregatingConverter(inCand candidate, outCand candidate) (bool, string) 
 
 	// Look for a slice field in the output struct.
 	outStruct := outCand.structType
-	for i := 0; i < outStruct.NumFields(); i++ {
-		field := outStruct.Field(i)
+	for field := range outStruct.Fields() {
 		if !field.Exported() {
 			continue
 		}
@@ -1365,8 +1359,7 @@ func validateAggregatingConverter(
 	// Get the slice field and extract its element type
 	var sliceElemType *types.Struct
 	var sliceElemTypeName string
-	for i := 0; i < outCand.structType.NumFields(); i++ {
-		field := outCand.structType.Field(i)
+	for field := range outCand.structType.Fields() {
 		if field.Name() == sliceFieldName {
 			if sliceType, ok := field.Type().(*types.Slice); ok {
 				// Get the element type
@@ -1451,8 +1444,8 @@ func findLastReturnPos(fn *ast.FuncDecl) token.Pos {
 		return token.NoPos
 	}
 	// Walk top-level statements in reverse to find the last return.
-	for i := len(fn.Body.List) - 1; i >= 0; i-- {
-		if ret, ok := fn.Body.List[i].(*ast.ReturnStmt); ok {
+	for _, v := range slices.Backward(fn.Body.List) {
+		if ret, ok := v.(*ast.ReturnStmt); ok {
 			return ret.Pos()
 		}
 	}
