@@ -123,10 +123,11 @@ type Config struct {
 	ExcludeFilePatterns []string `json:"exclude-files" mapstructure:"exclude-files"`
 
 	// MinTypeNameSimilarity is the minimum type name similarity ratio (0.0-1.0).
-	// 0.0 keeps the default behavior: case-insensitive substring matching between
-	// input/output type names. Values above 0.0 require the names to be at least
-	// that similar (Sørensen–Dice bigram coefficient) — recommended ~0.4-0.5 to
-	// reduce false positives on incidentally-similar names.
+	// Input/output type names must always contain one another (case-insensitively);
+	// values above 0.0 additionally require them to be at least that similar
+	// (Sorensen-Dice bigram coefficient). Because it only ever adds a requirement,
+	// raising it can only narrow the set of detected converters. Recommended: 0.6,
+	// to drop incidentally-similar names.
 	MinTypeNameSimilarity float64 `json:"min-similarity" mapstructure:"min-similarity"`
 
 	// IgnoreFieldTags is a list of struct tags that mark fields to be ignored.
@@ -359,7 +360,7 @@ func RegisterFlags(fs *flag.FlagSet, cfg *Config) {
 
 	fs.Func(
 		"min-similarity",
-		"minimum type name similarity ratio (0.0-1.0, 0=substring matching, higher=stricter)",
+		"minimum type name similarity ratio (0.0-1.0) required on top of name containment; higher=stricter",
 		func(s string) error {
 			v, err := strconv.ParseFloat(s, 64)
 			if err != nil {

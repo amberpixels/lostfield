@@ -200,15 +200,18 @@ startup rather than silently ignored.
 
 A function is considered a converter when it takes a struct (or
 pointer/slice/map of structs) and returns a different struct whose type name is
-*similar* to the input's:
+*similar* to the input's. One name must contain the other, case-insensitively
+(`User` -> `UserDTO`); shared fragments shorter than 3 characters are ignored.
 
-- **`min-similarity: 0` (default)**: names match when one contains the other,
-  case-insensitively (`User` -> `UserDTO`). Shared fragments shorter than
-  3 characters are ignored.
-- **`min-similarity: > 0`**: names match when their Sørensen-Dice bigram
-  similarity reaches the threshold. **Recommended: `0.6`** - it keeps genuine
-  pairs like `UserModel` -> `UserModelDTO` while dropping incidental pairs like
-  `Message` -> `MessageNewParams` (an API params struct, not a conversion).
+`min-similarity` adds a second requirement on top of that containment check:
+the Sørensen-Dice bigram similarity of the two names must reach the threshold
+as well. It is a filter, never an alternative rule, so raising it can only
+narrow the set of detected converters.
+
+- **`0` (default)**: containment alone.
+- **Recommended: `0.6`** - keeps genuine pairs like `UserModel` ->
+  `UserModelDTO` while dropping incidental ones like `Message` ->
+  `MessageNewParams` (an API params struct, not a conversion).
 
 Constructors (functions starting with `New`) are never treated as converters.
 Use `-exclude-converters`/`-only-converters` for name-based control.

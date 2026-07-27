@@ -45,3 +45,24 @@ func ConvertUser(u UserModel) UserModelDTO { // want "incomplete converter with 
 		ID: u.ID,
 	}
 }
+
+// ImportLocationOptions and ImportLocationResult are an operation signature, not a
+// conversion: neither name contains the other, so containment rejects the pair. Their
+// shared prefix scores high on bigrams, which is why a bigram-only rule used to pick
+// them up - a higher min-similarity must never add pairs a lower one excluded.
+type ImportLocationOptions struct {
+	Force  bool
+	DryRun bool
+	Rotate bool
+}
+
+// ImportLocationResult is the operation's result.
+type ImportLocationResult struct {
+	Skipped bool
+	Created int
+}
+
+// run is never a converter, at any min-similarity.
+func run(in ImportLocationOptions) ImportLocationResult {
+	return ImportLocationResult{Skipped: in.Force}
+}

@@ -350,7 +350,6 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Conf
 	// - The candidate names are different (no same-type conversions like DB -> DB)
 	// - And the candidate names share a common substring (ignoring case).
 	for _, inCand := range inCandidates {
-		lowerIn := strings.ToLower(inCand.name)
 		for _, outCand := range outCandidates {
 			// Exclude same-type conversions (e.g., *DB -> *DB is not a converter)
 			// Compare full types, not just names, to avoid false positives like models.MatchedMapData -> pbVenueConfig.MatchedMapData
@@ -380,29 +379,36 @@ func IsPossibleConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Conf
 				}
 			}
 
-			// Match type names: with min-similarity configured, require the
-			// Sørensen–Dice bigram similarity to reach the threshold; otherwise
-			// fall back to case-insensitive substring containment.
-			if cfg.MinTypeNameSimilarity > 0 {
-				if typeNameSimilarity(inCand.name, outCand.name) >= cfg.MinTypeNameSimilarity {
-					return true
-				}
+			// Match type names. Containment is the gate; min-similarity is a floor on
+			// top of it, never an alternative to it. Keeping it that way is what makes
+			// the setting monotonic: raising it can only ever narrow the set of pairs.
+			// The two are not otherwise comparable - a bigram score alone happily
+			// matches ImportLocationOptions to ImportLocationResult on their shared
+			// prefix, which containment is right to reject.
+			if !nameContainment(inCand.name, outCand.name) {
 				continue
 			}
-			// Containment requires the shorter name (the shared substring) to be
-			// at least 3 chars: 1-2 char overlaps are accidental, not conversions.
-			const minSharedLen = 3
-			lowerOut := strings.ToLower(outCand.name)
-			if len(lowerIn) >= minSharedLen && strings.Contains(lowerOut, lowerIn) {
-				return true
+			if cfg.MinTypeNameSimilarity > 0 &&
+				typeNameSimilarity(inCand.name, outCand.name) < cfg.MinTypeNameSimilarity {
+				continue
 			}
-			if len(lowerOut) >= minSharedLen && strings.Contains(lowerIn, lowerOut) {
-				return true
-			}
+			return true
 		}
 	}
 
 	return false
+}
+
+// nameContainment reports whether one type name contains the other, case-insensitively.
+// The shared name must be at least 3 chars: 1-2 char overlaps are accidental, not conversions.
+func nameContainment(a, b string) bool {
+	const minSharedLen = 3
+	lowerA := strings.ToLower(a)
+	lowerB := strings.ToLower(b)
+	if len(lowerA) >= minSharedLen && strings.Contains(lowerB, lowerA) {
+		return true
+	}
+	return len(lowerB) >= minSharedLen && strings.Contains(lowerA, lowerB)
 }
 
 // isNonMarshallableType checks if a field type is non-marshallable (function, channel, etc.)

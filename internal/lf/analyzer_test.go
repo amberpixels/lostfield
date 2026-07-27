@@ -215,6 +215,9 @@ func TestMinSimilarity(t *testing.T) {
 	// With min-similarity=0.6:
 	// - Message vs MessageNewParams (dice ~0.57) -> callAndMeter is NOT a converter
 	// - UserModel vs UserModelDTO (dice > 0.6) -> ConvertUser is still validated
+	// - ImportLocationOptions vs ImportLocationResult fails containment -> run is NOT a
+	//   converter, even though its bigram score clears 0.6. Raising the threshold must
+	//   only ever remove pairs; an unexpected diagnostic here means it added one.
 	cfg := config.DefaultConfig()
 	cfg.MinTypeNameSimilarity = 0.6
 	runAnalysisTestWithConfig(t, "converters/18-min-similarity", cfg,

@@ -56,10 +56,11 @@ linters:
             - "*.pb.go"
             - "*/vendor/*"
 
-          # Minimum type-name similarity (0.0-1.0) for a function to count as a
-          # converter. 0.0 = substring matching (default). Recommended: 0.6 -
-          # it keeps genuine Model->ModelDTO pairs while dropping functions that
-          # merely share a name fragment (e.g. Message vs MessageNewParams).
+          # Minimum type-name similarity (0.0-1.0) required on top of the name
+          # containment check, so raising it only ever narrows detection.
+          # 0.0 = containment alone (default). Recommended: 0.6 - it keeps genuine
+          # Model->ModelDTO pairs while dropping functions that merely share a
+          # name fragment (e.g. Message vs MessageNewParams).
           min-similarity: 0.6
 
           # Struct tags marking fields to skip. Entries are either a bare tag
