@@ -299,6 +299,36 @@ func TestSliceInlineMapping(t *testing.T) {
 	})
 }
 
+func TestIndexedAccess(t *testing.T) {
+	t.Run("20-indexed-access:clean", func(t *testing.T) {
+		// Converters that reach elements by indexing the parameter (in[i].Field) instead of
+		// through a range value are complete and must not be reported.
+		runAnalysisTest(t, "converters/20-indexed-access/clean")
+	})
+
+	t.Run("20-indexed-access:dirty", func(t *testing.T) {
+		// The same shapes with Text genuinely dropped are still caught.
+		runAnalysisTest(t, "converters/20-indexed-access/dirty",
+			DiagnosticAssertion{
+				FunctionName:  "ConvertCuesToDTO_MissingText",
+				FieldsMissing: []string{"in.Text", "Text"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertCuesToDTOIndexedWrite_MissingText",
+				FieldsMissing: []string{"in.Text", "Text"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertCuesToDTONamedResult_MissingText",
+				FieldsMissing: []string{"in.Text", "out.Text"},
+			},
+			DiagnosticAssertion{
+				FunctionName:  "ConvertCueMapToDTO_MissingText",
+				FieldsMissing: []string{"v.Text", "Text"},
+			},
+		)
+	})
+}
+
 func TestFixSafe(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.FixMode = "safe"

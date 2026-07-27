@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"regexp"
 	"strings"
@@ -935,17 +936,24 @@ func ValidateConverter(fn *ast.FuncDecl, pass *analysis.Pass, cfg *config.Config
 	}
 
 	// Collect field usages for the input candidate variable.
-	// For slice-to-slice converters with inline mapping, fields are accessed via the
-	// loop variable (e.g., "for _, item := range items { ... item.Field ... }"),
-	// not the slice parameter itself. Use the loop variable for field collection.
+	// Collection converters with inline mapping come in two spellings: through the range
+	// value ("for _, item := range items { ... item.Field ... }") or by indexing the
+	// parameter ("for i := range items { ... items[i].Field ... }"). Collect both and
+	// merge them, since one body may mix the two. Missing fields are still reported
+	// against the loop variable when there is one - that is the name the reader sees.
 	inFieldVar := inVar
-	if inCand.containerType == ContainerSlice && outCand.containerType == ContainerSlice {
+	if inCand.containerType == outCand.containerType &&
+		(inCand.containerType == ContainerSlice || inCand.containerType == ContainerMap) {
 		if loopVar := findLoopVariable(fn, inVar); loopVar != "" {
 			inFieldVar = loopVar
 		}
 	}
 	fieldsUsedModelIn := CollectUsedFields(fn.Body, inFieldVar)
 	methodsUsedModelIn := CollectUsedMethods(fn.Body, inFieldVar)
+	if inFieldVar != inVar {
+		maps.Copy(fieldsUsedModelIn, CollectUsedFields(fn.Body, inVar))
+		maps.Copy(methodsUsedModelIn, CollectUsedMethods(fn.Body, inVar))
+	}
 	missingIn := collectMissingFields(inCand.structType, fieldsUsedModelIn, pass, cfg, methodsUsedModelIn)
 	for i, m := range missingIn {
 		missingIn[i] = inFieldVar + "." + m
@@ -1104,8 +1112,15 @@ func isDelegatingConverter(
 		return false
 	})
 
-	if !foundLoop || loopVar == "" {
+	if !foundLoop {
 		return false
+	}
+
+	// A key-only range ("for i := range in") reaches elements by indexing the parameter.
+	// Require the call to actually take in[i]: the looser evidence below would accept any
+	// append or indexed call assignment, which for this shape says nothing about delegation.
+	if loopVar == "" {
+		return delegatesByIndex(fn, inVar)
 	}
 
 	// Look for function calls with the loop variable as argument
@@ -1141,6 +1156,57 @@ func isDelegatingConverter(
 	})
 
 	return foundDelegation
+}
+
+// delegatesByIndex reports whether fn stores the result of a call that receives a whole
+// element of inVar reached by indexing, as in "out[i] = convertOne(in[i])".
+func delegatesByIndex(fn *ast.FuncDecl, inVar string) bool {
+	var found bool
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, rhs := range assign.Rhs {
+			call, okCall := rhs.(*ast.CallExpr)
+			if okCall && callTakesElementOf(call, inVar) {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// callTakesElementOf reports whether call, or a call nested in its arguments (as in
+// append(out, convertOne(in[i]))), is passed an indexed element of varName.
+func callTakesElementOf(call *ast.CallExpr, varName string) bool {
+	for _, arg := range call.Args {
+		if indexesVar(arg, varName) {
+			return true
+		}
+		if inner, ok := arg.(*ast.CallExpr); ok && callTakesElementOf(inner, varName) {
+			return true
+		}
+	}
+	return false
+}
+
+// indexesVar reports whether expr indexes varName (in[i]), possibly behind & or parentheses.
+func indexesVar(expr ast.Expr, varName string) bool {
+	switch x := expr.(type) {
+	case *ast.IndexExpr:
+		ident, ok := x.X.(*ast.Ident)
+		return ok && ident.Name == varName
+	case *ast.UnaryExpr:
+		if x.Op == token.AND {
+			return indexesVar(x.X, varName)
+		}
+	case *ast.ParenExpr:
+		return indexesVar(x.X, varName)
+	}
+	return false
 }
 
 // isAggregatingConverter detects if fn is an aggregating converter:

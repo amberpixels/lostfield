@@ -109,7 +109,7 @@ func (v *UsageCollector) buildFieldChain(sel *ast.SelectorExpr) string {
 		chain = append([]string{current.Sel.Name}, chain...)
 
 		// Check the X part of the current selector
-		switch x := current.X.(type) {
+		switch x := unwrapBase(current.X).(type) {
 		case *ast.Ident:
 			// We've reached the base variable
 			if x.Name == v.varName {
@@ -130,6 +130,25 @@ func (v *UsageCollector) buildFieldChain(sel *ast.SelectorExpr) string {
 	}
 
 	return ""
+}
+
+// unwrapBase strips the wrappers that still denote the same base variable: indexing
+// (items[i]), parentheses ((items)) and pointer dereference (*item). Reading a field off
+// any of them is a read of that variable, so the chain walk must see through them -
+// otherwise "for i := range items { items[i].Name }" records no usage at all.
+func unwrapBase(expr ast.Expr) ast.Expr {
+	for {
+		switch x := expr.(type) {
+		case *ast.IndexExpr:
+			expr = x.X
+		case *ast.ParenExpr:
+			expr = x.X
+		case *ast.StarExpr:
+			expr = x.X
+		default:
+			return expr
+		}
+	}
 }
 
 func (v *UsageCollector) reset() {
@@ -171,16 +190,26 @@ func unwrapCompositeLit(expr ast.Expr) *ast.CompositeLit {
 	return nil
 }
 
-// compositeLitTypeName returns the (unqualified) type name of a composite literal,
-// e.g. "Category" for both Category{...} and models.Category{...}.
-func compositeLitTypeName(cl *ast.CompositeLit) string {
-	switch t := cl.Type.(type) {
+// typeExprName returns the (unqualified) name of a type expression, seeing through
+// pointers and parentheses: "Category" for Category, models.Category and *models.Category.
+func typeExprName(expr ast.Expr) string {
+	switch t := expr.(type) {
 	case *ast.Ident:
 		return t.Name
 	case *ast.SelectorExpr:
 		return t.Sel.Name
+	case *ast.StarExpr:
+		return typeExprName(t.X)
+	case *ast.ParenExpr:
+		return typeExprName(t.X)
 	}
 	return ""
+}
+
+// compositeLitTypeName returns the (unqualified) type name of a composite literal,
+// e.g. "Category" for both Category{...} and models.Category{...}.
+func compositeLitTypeName(cl *ast.CompositeLit) string {
+	return typeExprName(cl.Type)
 }
 
 // compositeLitOf unwraps expr (handling the &T{...} form) and returns the composite
@@ -209,6 +238,11 @@ func CollectOutputFields(fn *ast.FuncDecl, outVar, candidateName string) UsageLo
 	// If no output variable was provided (e.g. unnamed result), try to find a local candidate.
 	if outVar == "" {
 		outVar = findLocalCandidateVariable(fn, candidateName)
+	}
+	// A converter that pre-allocates its result (out := make([]T, len(in))) and fills it
+	// through the index has no composite literal to find, so resolve the variable from make.
+	if outVar == "" {
+		outVar = findLocalCollectionVariable(fn, candidateName)
 	}
 
 	// (a) If we have an output variable, collect direct field accesses.
@@ -328,6 +362,57 @@ func extractKeysFromValueWithPrefix(expr ast.Expr, keys UsageLookup, prefix stri
 			extractKeysFromValueWithPrefix(recv, keys, prefix)
 		}
 	}
+}
+
+// findLocalCollectionVariable scans the function body for a short variable declaration that
+// pre-allocates a slice, array or map of candidateName, e.g. out := make([]Category, len(in)).
+// Only CollectOutputFields uses it: the fixer resolves its own variable through
+// findLocalCandidateVariable, and must keep doing so - it emits `_ = out.Field` stubs, which
+// do not compile for a collection.
+func findLocalCollectionVariable(fn *ast.FuncDecl, candidateName string) string {
+	var varName string
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		decl, ok := n.(*ast.AssignStmt)
+		if !ok || decl.Tok != token.DEFINE {
+			return true
+		}
+		for i, lhs := range decl.Lhs {
+			ident, ok := lhs.(*ast.Ident)
+			if !ok || i >= len(decl.Rhs) {
+				continue
+			}
+			if makesCollectionOf(decl.Rhs[i], candidateName) {
+				varName = ident.Name
+				return false // stop searching
+			}
+		}
+		return true
+	})
+	return varName
+}
+
+// makesCollectionOf reports whether expr is a make() call building a slice, array or map
+// whose element type is candidateName (case-insensitive).
+func makesCollectionOf(expr ast.Expr, candidateName string) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return false
+	}
+	if ident, okFun := call.Fun.(*ast.Ident); !okFun || ident.Name != "make" {
+		return false
+	}
+
+	var elem ast.Expr
+	switch t := call.Args[0].(type) {
+	case *ast.ArrayType:
+		elem = t.Elt
+	case *ast.MapType:
+		elem = t.Value
+	default:
+		return false
+	}
+
+	return strings.EqualFold(typeExprName(elem), candidateName)
 }
 
 // findLocalCandidateVariable scans the function body for a short variable declaration
