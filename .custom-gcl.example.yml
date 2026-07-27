@@ -14,4 +14,4 @@ destination: .
 
 plugins:
   - module: 'github.com/amberpixels/lostfield'
-    version: latest # or pin a released version, e.g. v0.1.0
+    version: latest # or pin a released version, e.g. v0.2.0

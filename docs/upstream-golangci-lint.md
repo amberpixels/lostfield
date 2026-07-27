@@ -6,7 +6,7 @@ https://golangci-lint.run/docs/contributing/new-linters/
 
 ## Prerequisites (must be done first)
 
-- [ ] `v0.1.0` (or later) tag pushed to GitHub - golangci-lint's `go.mod` must
+- [ ] `v0.2.0` (or later) tag pushed to GitHub - golangci-lint's `go.mod` must
       be able to require a released version of `github.com/amberpixels/lostfield`.
 - [ ] Repo public with LICENSE, README, tests, CI green (all in place).
 
@@ -129,7 +129,7 @@ Add the settings block (with defaults) to `.golangci.next.reference.yml` under
 ### 6. Verify
 
 ```bash
-go mod tidy   # pulls github.com/amberpixels/lostfield@v0.1.0
+go mod tidy   # pulls github.com/amberpixels/lostfield@v0.2.0
 go run ./cmd/golangci-lint/ run --no-config --default=none --enable=lostfield \
     ./pkg/golinters/lostfield/testdata/lostfield.go
 go test ./pkg/golinters/lostfield/...
@@ -154,12 +154,12 @@ go test ./pkg/golinters/lostfield/...
 >   strictness.
 > - Suggested fixes (`safe`/`smart`) are emitted as `analysis.SuggestedFix`, so
 >   `--fix` works out of the box.
-> - Tagged release: v0.1.0. MIT licensed. Tests: analysistest corpus with 19
+> - Tagged release: v0.2.0. MIT licensed. Tests: analysistest corpus with 21
 >   scenarios + unit tests (85% coverage). CI on Go 1.26.
 
 ## Checklist before opening the PR
 
-- [ ] lostfield `v0.1.0` tag pushed
+- [ ] lostfield `v0.2.0` tag pushed
 - [ ] fork branch `feat/add-lostfield-linter` builds and its functional test passes
 - [ ] `.golangci.next.reference.yml` updated
 - [ ] PR title follows their convention: `Add lostfield linter`
