@@ -10,7 +10,7 @@
 # and lostfield is meant to be required *by* golangci-lint upstream, so the directive
 # would put a copy of golangci-lint (and of lostfield itself) in this module's graph.
 # The fmt/lint/fix fences are removed for the same reason - they must not resync.
-standardgo := "github.com/amberpixels/standardgo/cmd/standardgo@v0.1.1"
+standardgo := "github.com/amberpixels/standardgo/cmd/standardgo@v0.1.2"
 
 # The floor this library promises to support. Keep in sync with the `go` directive
 # in go.mod - that is the number consumers actually see. CI passes FLOOR_GO=local,
