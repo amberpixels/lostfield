@@ -6,38 +6,56 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # go.mod requires go 1.26; older toolchains would auto-upgrade anyway,
-      # so a version matrix below 1.26 tests nothing.
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-
-      - name: Install just
-        uses: extractions/setup-just@v2
-
-      - name: Run tests
-        run: just test
-
-  lint:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
+          # Caches GOMODCACHE and GOCACHE, which is what keeps `just lint` from
+          # recompiling the golangci-lint engine inside standardgo on every run.
+          # The justfile is in the key because it pins the standardgo version:
+          # without it the key never changes, the cache is never re-saved, and a
+          # version bump would rebuild from scratch on every run forever after.
+          cache-dependency-path: |
+            go.sum
+            justfile
 
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Run linter
-        run: just lint
+      - run: just lint test
+
+  # The floor check runs on its own so it never drags a second toolchain into the
+  # check job's cache. The version comes from the justfile, NOT from go.mod: go.mod is
+  # the thing under test, so deriving from it would make the check self-fulfilling -
+  # raising the go directive would just install a newer toolchain and pass. Pinning
+  # independently means a raised go.mod fails here until the promise is raised too.
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - id: pin
+        run: echo "go=$(just --evaluate floor_go | sed 's/^go//')" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go }}
+          cache: false
+
+      # GOTOOLCHAIN=local: use the toolchain just installed and refuse to upgrade past
+      # it, so a raised floor is an error here instead of a silent download.
+      - run: FLOOR_GO=local just floor
 
   selfcheck:
     name: dogfood (lostfield on lostfield)
@@ -47,7 +65,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
 
       - name: Install lostfield
         run: go install ./cmd/lostfield

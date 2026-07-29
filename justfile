@@ -10,7 +10,12 @@
 # and lostfield is meant to be required *by* golangci-lint upstream, so the directive
 # would put a copy of golangci-lint (and of lostfield itself) in this module's graph.
 # The fmt/lint/fix fences are removed for the same reason - they must not resync.
-standardgo := "github.com/amberpixels/standardgo/cmd/standardgo@v0.1.0"
+standardgo := "github.com/amberpixels/standardgo/cmd/standardgo@v0.1.1"
+
+# The floor this library promises to support. Keep in sync with the `go` directive
+# in go.mod - that is the number consumers actually see. CI passes FLOOR_GO=local,
+# having already installed the floor toolchain, so it never downloads a second one.
+floor_go := env("FLOOR_GO", "go1.25.0")
 
 export PATH := env("PATH") + ":" + `go env GOPATH` + "/bin"
 binary_name := "lostfield"
@@ -43,10 +48,14 @@ build:
     go build ./...
 # <<< justx:build
 
-# >>> justx:ci (managed) — `j @upgrade` re-syncs; remove these fences to take over
+# check that the go.mod floor still builds and vets, standalone. vet is the leg that
+# matters: too-new stdlib APIs compile fine and only stdversion reports them.
+floor:
+    GOWORK=off GOTOOLCHAIN={{ floor_go }} go build ./...
+    GOWORK=off GOTOOLCHAIN={{ floor_go }} go vet ./...
+
 # run all checks - read-only, safe for CI
-ci: lint test
-# <<< justx:ci
+ci: lint test floor
 
 # Install the linter binary to GOPATH/bin
 install:
