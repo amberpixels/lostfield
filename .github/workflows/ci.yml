@@ -32,6 +32,15 @@ jobs:
 
       - run: just lint test
 
+      # golangci-lint imports the root package, so anything reachable from it lands in
+      # their build. The plugin registration lives in ./plugin and the pretty
+      # formatter's colors are written out by hand precisely to keep this to one entry.
+      - name: Root package carries only x/tools
+        run: |
+          extra=$(go list -deps . | grep -v '^github.com/amberpixels/lostfield' \
+                                  | grep '\.' | grep -v '^golang.org/x/tools' || true)
+          if [ -n "$extra" ]; then echo "unexpected deps:"; echo "$extra"; exit 1; fi
+
   # The floor check runs on its own so it never drags a second toolchain into the
   # check job's cache. The version comes from the justfile, NOT from go.mod: go.mod is
   # the thing under test, so deriving from it would make the check self-fulfilling -

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/fatih/color"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -49,15 +48,27 @@ func (c *prettyFormatter) Format(ctx *FormatContext) string {
 	return buf.String()
 }
 
-// sprintFunc returns a colorizing sprint function for attrs, or a plain
+// ANSI SGR codes for the three colors this format uses. Written out rather than taken
+// from fatih/color, which would put that module plus go-colorable, go-isatty and
+// x/sys/unix in the graph of everything importing lostfield - including golangci-lint,
+// which never reaches this formatter at all. The bytes are identical to what
+// color.New(color.FgBlue).SprintFunc() produced.
+const (
+	ansiReset  = "\x1b[0m"
+	ansiBlue   = "\x1b[34m"
+	ansiRed    = "\x1b[31m"
+	ansiYellow = "\x1b[33m"
+)
+
+// sprintFunc returns a sprint function wrapping its output in code, or a plain
 // pass-through when colors are disabled.
-func (c *prettyFormatter) sprintFunc(attrs ...color.Attribute) func(a ...any) string {
+func (c *prettyFormatter) sprintFunc(code string) func(a ...any) string {
 	if !c.colorize {
 		return fmt.Sprint
 	}
-	col := color.New(attrs...)
-	col.EnableColor() // per-instance: no global color.NoColor mutation
-	return col.SprintFunc()
+	return func(a ...any) string {
+		return code + fmt.Sprint(a...) + ansiReset
+	}
 }
 
 // maxFieldsPerSide is the maximum number of fields to display per side (input/output)
@@ -181,9 +192,9 @@ func (c *prettyFormatter) prettyPrint(
 		utf8.RuneCountInString(shortLine),
 	)
 
-	blue := c.sprintFunc(color.FgBlue)
-	red := c.sprintFunc(color.FgRed)
-	yellow := c.sprintFunc(color.FgYellow)
+	blue := c.sprintFunc(ansiBlue)
+	red := c.sprintFunc(ansiRed)
+	yellow := c.sprintFunc(ansiYellow)
 
 	// Print header.
 	fnName := fn.Name.Name

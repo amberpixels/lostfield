@@ -104,8 +104,12 @@ you build a custom golangci-lint binary once, then use lostfield like any other 
 version: v2.12.2
 plugins:
   - module: 'github.com/amberpixels/lostfield'
+    import: 'github.com/amberpixels/lostfield/plugin'
     version: latest
 ```
+
+The `import` line matters: the registration lives in `./plugin`, so importing
+lostfield as a library stays free of `plugin-module-register` and its `init()`.
 
 2. Build the custom binary:
 

@@ -6,8 +6,11 @@ https://golangci-lint.run/docs/contributing/new-linters/
 
 ## Prerequisites (must be done first)
 
-- [ ] `v0.2.0` (or later) tag pushed to GitHub - golangci-lint's `go.mod` must
-      be able to require a released version of `github.com/amberpixels/lostfield`.
+- [ ] A tag pushed to GitHub - golangci-lint's `go.mod` must be able to require a
+      released version of `github.com/amberpixels/lostfield`.
+- [ ] `go` directive at or below golangci-lint's own floor. Theirs is `go 1.25.0`,
+      under a comment reserving changes to their maintainers, and a dependency
+      declaring more rewrites it silently via `go mod tidy`. lostfield is `1.25.0`.
 - [ ] Repo public with LICENSE, README, tests, CI green (all in place).
 
 ## Changes to make in a golangci-lint fork
@@ -53,9 +56,13 @@ func New(settings *config.LostFieldSettings) *goanalysis.Linter {
 ```
 
 Notes:
+- The import above is the module root, which holds only the analyzer. The
+  module-plugin registration lives in `github.com/amberpixels/lostfield/plugin`, so
+  upstream never picks up `plugin-module-register` or an `init()`. Importing the root
+  package pulls exactly one external module, `golang.org/x/tools`.
 - `format`/`verbose`/`fix-mode` are intentionally NOT exposed: output formatting
-  belongs to golangci-lint, and suggested fixes flow through `--fix` via
-  `analysis.SuggestedFix` automatically when present.
+  belongs to golangci-lint, `verbose` writes to stderr mid-run, and suggested fixes
+  flow through `--fix` once the linter is registered `WithAutoFix()`.
 - `lostfield.NewAnalyzer` validates the config and reports an invalid enum value
   as a run error - no extra validation needed in the wrapper.
 
@@ -91,9 +98,17 @@ non-marshallable-fields `adaptive`, field-validation-mode `strict`).
 linter.NewConfig(lostfield.New(&cfg.Linters.Settings.LostField)).
 	WithSince("next_version").
 	WithLoadForGoAnalysis().
-	WithPresets(linter.PresetBugs).
+	WithAutoFix().
 	WithURL("https://github.com/amberpixels/lostfield"),
 ```
+
+Two v2 notes, both checked against today's `builder_linter.go`:
+
+- **No `WithPresets`.** Presets were removed in v2; the method does not exist (zero
+  occurrences in that file). A v1-shaped `WithPresets(linter.PresetBugs)` will not compile.
+- **`WithAutoFix()` is required** for the suggested fixes to be reachable. It is how v2
+  marks a linter as `--fix`-capable (40 uses). Without it the `fixer` package is dead
+  weight to golangci-lint users, since `SuggestedFixes` alone is not enough.
 
 ### 4. Functional test `pkg/golinters/lostfield/testdata/lostfield.go`
 
@@ -129,7 +144,7 @@ Add the settings block (with defaults) to `.golangci.next.reference.yml` under
 ### 6. Verify
 
 ```bash
-go mod tidy   # pulls github.com/amberpixels/lostfield@v0.2.0
+go mod tidy   # pulls github.com/amberpixels/lostfield@v0.3.0
 go run ./cmd/golangci-lint/ run --no-config --default=none --enable=lostfield \
     ./pkg/golinters/lostfield/testdata/lostfield.go
 go test ./pkg/golinters/lostfield/...
@@ -153,13 +168,16 @@ go test ./pkg/golinters/lostfield/...
 >   regex field exclusion, and a name-similarity threshold to control detection
 >   strictness.
 > - Suggested fixes (`safe`/`smart`) are emitted as `analysis.SuggestedFix`, so
->   `--fix` works out of the box.
-> - Tagged release: v0.2.0. MIT licensed. Tests: analysistest corpus with 21
->   scenarios + unit tests (85% coverage). CI on Go 1.26.
+>   `--fix` works once registered `WithAutoFix()`.
+> - Importing it costs one external module, `golang.org/x/tools`. The module-plugin
+>   registration lives in a separate `./plugin` package, so nothing else comes along.
+> - Tagged release: v0.3.0, Go floor 1.25.0 to match golangci-lint's own. MIT licensed.
+>   Tests: analysistest corpus with 21 scenarios plus unit tests (84% coverage), CI
+>   running at the floor and at the declared minimum.
 
 ## Checklist before opening the PR
 
-- [ ] lostfield `v0.2.0` tag pushed
+- [ ] lostfield `v0.3.0` tag pushed
 - [ ] fork branch `feat/add-lostfield-linter` builds and its functional test passes
 - [ ] `.golangci.next.reference.yml` updated
 - [ ] PR title follows their convention: `Add lostfield linter`

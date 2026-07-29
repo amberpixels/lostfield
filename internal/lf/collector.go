@@ -4,8 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
-
-	"github.com/amberpixels/k1/set"
 )
 
 // CollectingType means which type of node we can "collect" via usageCollector.
@@ -18,8 +16,19 @@ const (
 )
 
 // UsageLookup is a set holding the names of fields/methods that were used.
-// It aliases k1/set.Lookup, so use .Has to test membership and .Add to record.
-type UsageLookup = set.Lookup[string]
+// Use .Has to test membership and .Add to record.
+type UsageLookup map[string]struct{}
+
+// Has reports whether k was recorded.
+func (l UsageLookup) Has(k string) bool {
+	_, ok := l[k]
+	return ok
+}
+
+// Add records k.
+func (l UsageLookup) Add(k string) {
+	l[k] = struct{}{}
+}
 
 // UsageCollector is a generic AST visitor that collects selector usage for a given variable.
 // rType(RecordingType) stands for the type of things we record: fields or methods.
